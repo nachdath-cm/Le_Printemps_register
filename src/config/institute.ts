@@ -11,10 +11,11 @@ export const INSTITUTE = {
   description:
     'Registre des prestations — Le Printemps, institut de beauté et spa à Jéricho, Cotonou.',
   location: 'Jéricho, Cotonou, Bénin',
-  phone: '+229 97 00 00 00',
-  phoneDisplay: '+229 97 00 00 00',
-  /** Numéro au format international, sans « + » ni espaces, pour wa.me. */
-  whatsapp: '22997000000',
+  /** Numéro de l'institut. `phone` sert au lien `tel:`, `phoneDisplay` à l'affichage. */
+  phone: '+229 0197921046',
+  phoneDisplay: '+229 0197921046',
+  /** Chiffres uniquement, sans « + », pour un éventuel lien wa.me. */
+  whatsapp: '2290197921046',
 } as const;
 
 /**

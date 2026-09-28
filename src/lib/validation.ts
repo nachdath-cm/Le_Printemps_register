@@ -35,7 +35,9 @@ export function validateRegistration(values: RegistrationFormValues): Registrati
   if (!phone) {
     errors.phone = 'Votre numéro de téléphone est requis.';
   } else if (!PHONE_PATTERN.test(phone)) {
-    errors.phone = 'Numéro invalide. Ex. : 01 97 00 00 00';
+    // Exemple volontairement générique : un exemple proche du vrai numéro de
+    // l'institut risquerait d'être composé tel quel par une cliente.
+    errors.phone = 'Numéro invalide. Ex. : 01 23 45 67 89';
   }
 
   if (values.services.length === 0) {

@@ -201,7 +201,7 @@ export function ClientRegisterModal({ open, onClose }: ClientRegisterModalProps)
                   value={values.phone}
                   autoComplete="tel"
                   enterKeyHint="done"
-                  placeholder="01 97 00 00 00"
+                  placeholder="01 23 45 67 89"
                   invalid={p.invalid}
                   disabled={submitting}
                   onChange={(e) => set('phone', e.target.value)}
