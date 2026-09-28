@@ -1,3 +1,4 @@
+import { PIN_LENGTH } from '../src/lib/constants.ts';
 import { z } from 'zod';
 
 import { OTHER_SERVICE_ID, VALID_SERVICE_IDS } from '../src/config/services.ts';
@@ -59,7 +60,7 @@ export const statusSchema = z.object({
 });
 
 export const loginSchema = z.object({
-  pin: z.string().min(1).max(32),
+  pin: z.string().regex(new RegExp(`^\\d{${PIN_LENGTH}}$`)),
 });
 
 export type CreatePayload = z.infer<typeof createSchema>;

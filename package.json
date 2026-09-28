@@ -12,7 +12,8 @@
     "lint": "oxlint",
     "build": "npm run icons && tsc -b && vite build",
     "start": "tsx server/index.ts",
-    "preview": "npm run build && npm start"
+    "preview": "npm run build && npm start",
+    "test": "tsx --test server/*.test.ts"
   },
   "dependencies": {
     "cors": "^2.8.6",

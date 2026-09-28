@@ -112,15 +112,43 @@ lorsque la cliente la coche, et il devient alors obligatoire.
 
 ## Variables d'environnement
 
-| Variable         | Défaut            | Rôle                                                     |
-| ---------------- | ----------------- | -------------------------------------------------------- |
-| `ADMIN_PIN`      | `2468` en dev     | Code d'accès au registre. **Obligatoire en production.** |
-| `SESSION_SECRET` | généré au démarrage | Clé HMAC des sessions. À fixer pour des sessions durables. |
-| `PORT`           | `5174`            | Port d'écoute.                                            |
-| `HOST`           | `0.0.0.0`         | Interface d'écoute.                                      |
-| `DATA_DIR`       | `./server/data`   | Emplacement du fichier d'inscriptions.                   |
+| Variable         | Défaut              | Rôle                                                       |
+| ---------------- | ------------------- | ---------------------------------------------------------- |
+| `ADMIN_PIN`      | aucun               | Code d'accès, **exactement 4 chiffres**. Obligatoire en production : sans lui, `/api/auth/login` répond 503 et l'admin reste fermé. |
+| `SESSION_SECRET` | généré au démarrage  | Clé HMAC des sessions. À fixer pour des sessions durables.  |
+| `PORT`           | `5174`              | Port d'écoute.                                              |
+| `HOST`           | `0.0.0.0`           | Interface d'écoute.                                        |
+| `DATA_DIR`       | `./server/data`     | Emplacement des données. **À pointer vers le volume** en conteneur. |
 
 Voir `.env.example` pour le détail.
+
+### Choisir un code d'accès
+
+Le code fait quatre chiffres, et le registre contient le nom et le téléphone
+de vos clientes. Deux précautions :
+
+- **Ne reprenez pas un code présent dans le dépôt.** `2468` figurait
+  historiquement dans `.env.example` et reste lisible dans l'historique Git :
+  c'est un code que l'on peut essayer en premier.
+- **La limitation de tentatives rend la force brute coûteuse**, pas impossible.
+  Après cinq échecs, l'accès est bloqué une minute, puis deux, quatre… jusqu'à
+  trente minutes maximum. Un code correct dégage immédiatement le blocage.
+  Le décompte est par adresse IP, en mémoire : il ne tient pas si le service
+  tourne sur plusieurs instances.
+
+### Déployer en conteneur (Railway, Render)
+
+| Variable       | Valeur    | Pourquoi                                                     |
+| -------------- | --------- | ------------------------------------------------------------ |
+| `ADMIN_PIN`    | 4 chiffres | Obligation d'accès.                                         |
+| `SESSION_SECRET` | 64 caractères hexadécimaux | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `DATA_DIR`     | chemin du volume | `server/data` est dans le projet : il est vide à chaque redéploiement. |
+
+Railway fournit `RAILWAY_VOLUME_MOUNT_PATH` : c'est la valeur à mettre dans
+`DATA_DIR` si le volume est monté sur `/data`. Ne vous fiez pas à
+`${{ secret() }}` pour `SESSION_SECRET` : ces fonctions sont évaluées au
+déploiement d'un *template*, pas dans l'onglet Variables d'un service. Préférez
+une valeur littérale que vous collez vous-même.
 
 ---
 

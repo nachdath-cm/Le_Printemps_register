@@ -6,7 +6,9 @@ import cors from 'cors';
 import express, { type NextFunction, type Request, type Response } from 'express';
 
 import { isPinConfigured, issueToken, readToken, verifyPin, verifyToken, warnAboutAuthConfig } from './auth.ts';
+import { checkLoginRate, recordLoginFailure, recordLoginSuccess } from './rate-limit.ts';
 import { BODY_LIMIT, createSchema, firstError, loginSchema, statusSchema } from './schemas.ts';
+import { PIN_LENGTH } from '../src/lib/constants.ts';
 import { countForDay, createRegistration, listRegistrations, setStatus } from './store.ts';
 import { serviceLabel } from '../src/config/services.ts';
 import { STATUS_LABEL } from '../src/lib/types.ts';
@@ -25,6 +27,13 @@ function todayKey(): string {
 const app = express();
 
 app.disable('x-powered-by');
+// Railway et Render placent un proxy devant l'application : sans cette ligne,
+// `req.ip` renvoie l'IP du proxy — la meme pour tous les visiteurs. La
+// limitation de tentatives regrouperait alors tout le monde dans un seul
+// compteur, et un attaquant pourrait verrouiller l'acces admin de l'equipe
+// en epuisant le quota a leur place. Le proxy etant le seul point d'entree
+// accessible, on lui fait confiance pour X-Forwarded-For.
+app.set('trust proxy', 1);
 // En developpement le front tourne sur :5173 et dialogue avec l'API sur :5174.
 app.use(cors({ origin: true, credentials: false }));
 app.use(express.json({ limit: BODY_LIMIT }));
@@ -159,7 +168,7 @@ api.get('/registrations.csv', requireAdmin, async (req, res) => {
 api.post('/auth/login', (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: 'PIN requis.' });
+    res.status(400).json({ error: `Le code doit comporter ${PIN_LENGTH} chiffres.` });
     return;
   }
   // Aucun PIN configure : c'est un probleme de plateforme, pas une erreur de
@@ -171,10 +180,28 @@ api.post('/auth/login', (req, res) => {
     });
     return;
   }
+  // Un PIN de quatre chiffres se devine : on limite les tentatives avant de
+  // verifier quoi que ce soit, et on ne distingue pas « bloque » de « faux »
+  // pour ne pas aider a deviner.
+  const clientId = req.ip ?? 'inconnu';
+  const verdict = checkLoginRate(clientId);
+  if (!verdict.ok) {
+    res.setHeader('Retry-After', String(verdict.retryAfter));
+    // Dire combien de temps : une employée qui s'est trompée de touche au
+    // comptoir ne doit pas rester devant « réessayez plus tard » en croyant
+    // que le code est devenu faux.
+    const minutes = Math.max(1, Math.round(verdict.retryAfter / 60));
+    res.status(429).json({
+      error: `Trop de tentatives. Réessayez dans ${minutes} minute${minutes > 1 ? 's' : ''}.`,
+    });
+    return;
+  }
   if (!verifyPin(parsed.data.pin)) {
+    recordLoginFailure(clientId);
     res.status(401).json({ error: 'Code incorrect.' });
     return;
   }
+  recordLoginSuccess(clientId);
   res.json({ token: issueToken() });
 });
 

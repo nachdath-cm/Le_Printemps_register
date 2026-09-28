@@ -2,6 +2,7 @@ import { KeyRound } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 
 import { login, tokenStorage } from '../lib/api';
+import { PIN_LENGTH } from '../lib/constants';
 import { Button } from '../components/ui/Button';
 import { Field, TextInput } from '../components/ui/Field';
 import { Logo } from '../components/Logo';
@@ -58,11 +59,11 @@ export function AdminLogin({ onSuccess }: AdminLoginProps) {
     if (error) setError(null);
     if (key === 'clear') return setPin('');
     if (key === 'back') return setPin((p) => p.slice(0, -1));
-    if (pin.length >= 8) return;
+    if (pin.length >= PIN_LENGTH) return;
     const next = pin + key;
     setPin(next);
-    // 4 chiffres est la longueur du PIN par defaut : validation automatique.
-    if (next.length === 4) void submit(next);
+    // Le code fait quatre chiffres : on valide des que c'est complet.
+    if (next.length === PIN_LENGTH) void submit(next);
   }
 
   function onSubmit(event: FormEvent) {
@@ -115,7 +116,7 @@ export function AdminLogin({ onSuccess }: AdminLoginProps) {
                 inputMode="numeric"
                 autoComplete="one-time-code"
                 value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, PIN_LENGTH))}
                 className="sr-only"
                 tabIndex={-1}
                 autoFocus
