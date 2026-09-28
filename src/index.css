@@ -1,0 +1,214 @@
+@import 'tailwindcss';
+
+/* ============================================================================
+   LE PRINTEMPS — Design tokens
+   ----------------------------------------------------------------------------
+   Values marked [SITE] are the real, extracted values from the production
+   stylesheet of https://le-printemps-spa.vercel.app/assets/index-*.css
+   (its :root custom properties). Values marked [AA] are derived additions
+   required to meet WCAG 2.1 AA contrast, because the production palette
+   fails AA in several places (see /docs/palette-audit.md).
+   ========================================================================== */
+
+@theme {
+  /* ---- Brand ------------------------------------------------------------ */
+  /* [SITE] --primary */
+  --color-primary: #f2824e;
+  /* [SITE] --primary-hover */
+  --color-primary-hover: #e06e39;
+  /* [SITE] --primary-light */
+  --color-primary-light: #fff2eb;
+  /* [SITE] --primary-glow */
+  --color-primary-glow: #f2824e26;
+  /* [SITE] --gold */
+  --color-gold: #d6b38c;
+
+  /* ---- Accessibility-derived accents ------------------------------------
+     #f2824e is 2.60:1 against white and 2.42:1 against the page background,
+     so it may never carry text on a light surface. These two shades preserve
+     the brand hue while reaching AA.
+     ---------------------------------------------------------------------- */
+  /* [AA] 4.58:1 on white / cream — solid fills behind white text */
+  --color-primary-strong: #bd5822;
+  /* [AA] 6.00:1 on white — hover state of the above */
+  --color-primary-strong-hover: #a3481a;
+  /* [AA] 5.4–5.9:1 on white, cream and primary-light — orange *text* */
+  --color-primary-ink: #a5481c;
+
+  /* ---- Surfaces --------------------------------------------------------- */
+  /* [SITE] --bg-cream */
+  --color-cream: #faf6f2;
+  --color-card: #fbf5f0;
+  --color-card-border: #f3e6dc;
+  /* [SITE] --bg-white */
+  --color-surface: #ffffff;
+  /* [SITE] --dark (footer / dark sections) */
+  --color-dark: #1b1210;
+
+  /* ---- Text ------------------------------------------------------------- */
+  /* [SITE] --text-dark */
+  --color-ink: #2d1f1d;
+  /* [SITE] --text-muted — 6.1:1 on cream, AA for body text */
+  --color-muted: #6e5855;
+
+  /* ---- Optional --------------------------------------------------------- */
+  --color-whatsapp: #25d366;
+  --color-whatsapp-hover: #1ebe57;
+
+  /* ---- Feedback — [AA] nuances foncees, le rouge/vert vif standard
+     echoue AA sur fond clair (3.1:1 et 2.3:1 respectivement). --------- */
+  --color-danger: #b3261e; /* 6.0:1 sur blanc */
+  --color-danger-soft: #fdecea;
+  --color-success: #1c6b3c; /* 5.6:1 sur blanc */
+  --color-success-soft: #e7f4ec;
+
+  /* ---- Type ------------------------------------------------------------- */
+  /* [SITE] --font-serif */
+  --font-serif: 'Playfair Display', Georgia, 'Times New Roman', serif;
+  /* [SITE] --font-sans */
+  --font-sans: 'Outfit', ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  /* ---- Radii — taken from the production stylesheet --------------------- */
+  --radius-card: 24px; /* .about-img / cards */
+  --radius-tile: 20px; /* .about-logo-wrapper, cards */
+  --radius-icon: 18px; /* .service-icon-wrapper */
+  --radius-pill: 50px; /* .btn, .services-tabs */
+
+  /* ---- Shadows — from the production stylesheet ------------------------ */
+  --shadow-brand: 0 4px 15px #f2824e4d;
+  --shadow-brand-lg: 0 6px 20px #f2824e66;
+  --shadow-soft: 0 10px 30px #4e38340d; /* [SITE] --glass-shadow */
+  --shadow-card: 0 18px 40px #4e383414; /* [SITE] .about-logo-wrapper */
+  --shadow-lift: 0 20px 45px #4e38341a; /* [SITE] .about-img */
+
+  /* ---- Motion ----------------------------------------------------------- */
+  /* [SITE] --transition-smooth / --transition-fast */
+  --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ============================================================================
+   Base
+   ========================================================================== */
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-cream font-sans text-ink antialiased;
+    /* Avoids iOS Safari auto-zoom on focus for the form fields */
+    text-size-adjust: 100%;
+  }
+
+  /* One consistent, high-visibility focus ring across the whole app. */
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    @apply outline-primary-ink outline-2 outline-offset-2;
+  }
+
+  /* Remove the number-input spinners: the client form is touch-first. */
+  input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+}
+
+/* ============================================================================
+   Component primitives
+   ========================================================================== */
+
+@layer components {
+  /* Wide-tracked uppercase eyebrow, used above every section title. */
+  .eyebrow {
+    @apply text-muted font-sans text-xs font-semibold tracking-[0.2em] uppercase;
+  }
+}
+
+/* ============================================================================
+   Animations
+   ========================================================================== */
+
+@keyframes lp-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes lp-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  60% {
+    transform: scale(1.015);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes lp-check {
+  0% {
+    opacity: 0;
+    transform: scale(0.3) rotate(-12deg);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.14) rotate(4deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes lp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes lp-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@utility animate-fade-up {
+  animation: lp-fade-up 0.5s var(--ease-out-soft) both;
+}
+
+@utility animate-pop {
+  animation: lp-pop 0.45s var(--ease-out-soft) both;
+}
+
+@utility animate-check {
+  animation: lp-check 0.6s var(--ease-out-soft) both;
+}
+
+@utility animate-spin-slow {
+  animation: lp-spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
