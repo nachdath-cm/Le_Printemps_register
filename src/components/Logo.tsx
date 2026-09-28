@@ -5,8 +5,6 @@ export interface LogoProps {
   /** Hauteur du sigle en pixels. La largeur suit le rapport du logo. */
   size?: number;
   className?: string;
-  /** Rend un rendu texte a la place de l'image (si le logo est absent). */
-  withText?: boolean;
 }
 
 /**
@@ -15,9 +13,12 @@ export interface LogoProps {
  * On affiche la version recadree et detouree (`logo-mark.png`, produite par
  * `npm run icons`), car le fichier d'origine est livre sur un carre blanc qui
  * dessinerait un bloc pale au milieu de la page. Si cette version derive
- * manque, on retombe sur le fichier d'origine, puis sur le nom en serif.
+ * manque, on retombe sur le fichier depose, puis on masque l'image cassee.
+ *
+ * Le logo contient deja la mention « LE PRINTEMPS » : aucun texte ne doit donc
+ * etre ajoute a cote, sous peine de doublon visuel.
  */
-export function Logo({ size = 40, className, withText = false }: LogoProps) {
+export function Logo({ size = 40, className }: LogoProps) {
   const [src, setSrc] = useState(LOGO_MARK_PATH);
 
   return (
@@ -35,25 +36,10 @@ export function Logo({ size = 40, className, withText = false }: LogoProps) {
             setSrc(LOGO_PATH);
             return;
           }
-          // Aucun logo : on masque l'image cassee, le texte prend le relais.
+          // Aucun logo : on masque l'image cassee.
           event.currentTarget.style.display = 'none';
         }}
       />
-      {withText && <LogoText />}
-    </span>
-  );
-}
-
-/** « LE PRINTEMPS » en serif orange — reprise du header du site vitrine. */
-export function LogoText({ className }: { className?: string }) {
-  return (
-    <span className={`flex flex-col leading-none ${className ?? ''}`}>
-      <span className="text-primary-ink font-serif text-xl font-semibold tracking-wide">
-        LE PRINTEMPS
-      </span>
-      <span className="text-muted mt-1 font-sans text-[0.6rem] font-medium tracking-[0.22em] uppercase">
-        Soins &amp; Coiffures
-      </span>
     </span>
   );
 }

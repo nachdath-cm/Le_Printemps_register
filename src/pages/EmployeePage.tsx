@@ -59,10 +59,13 @@ export function EmployeePage() {
     <div className="bg-cream flex min-h-dvh flex-col">
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center gap-7 px-5 py-10 sm:py-14">
         <header className="animate-fade-up flex flex-col items-center gap-3 text-center">
+          {/*
+            Le logo contient deja « Le Printemps », en plus grand que ne le
+            serait ce titre : l'afficher une seconde fois ferait doublon. Le
+            titre est conserve pour les lecteurs d'ecran et le référencement.
+          */}
+          <h1 className="sr-only">{INSTITUTE.name} — borne d'inscription</h1>
           <Logo size={72} />
-          <h1 className="text-ink font-serif text-4xl leading-tight sm:text-5xl">
-            {INSTITUTE.name}
-          </h1>
           <p className="eyebrow">{INSTITUTE.location}</p>
         </header>
 

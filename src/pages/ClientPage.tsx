@@ -17,8 +17,9 @@ export function ClientPage() {
   return (
     <div className="bg-cream flex min-h-dvh flex-col items-center justify-center px-5 py-10">
       <div className="flex max-w-sm flex-col items-center gap-4 text-center">
+        {/* Le nom est deja dans le logo : titre reserve aux lecteurs d'ecran. */}
+        <h1 className="sr-only">{INSTITUTE.name} — inscription</h1>
         <Logo size={64} />
-        <h1 className="text-ink font-serif text-3xl">{INSTITUTE.name}</h1>
         <p className="eyebrow">{INSTITUTE.tagline}</p>
       </div>
 

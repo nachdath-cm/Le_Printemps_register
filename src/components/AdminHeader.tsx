@@ -11,15 +11,16 @@ export interface AdminHeaderProps {
 }
 
 /**
- * Header blanc, logo serif orange a gauche, action orange a droite.
- * Reprend la structure du header du site vitrine.
+ * Header blanc, logo a gauche, action orange a droite.
+ * Le logo depose par l'institut contient deja la mention « LE PRINTEMPS » :
+ * on ne lui ajoute donc pas de texte a cote, ce qui le doublerait.
  */
 export function AdminHeader({ children, onSignOut }: AdminHeaderProps) {
   return (
     <header className="border-primary-light bg-surface/95 sticky top-0 z-40 border-b backdrop-blur-md">
       <div className="mx-auto flex h-[72px] w-full max-w-6xl items-center justify-between gap-4 px-4 sm:h-[90px] sm:px-6">
         <Link to="/borne" className="flex items-center gap-3" aria-label="Le Printemps — page d'accueil">
-          <Logo size={36} withText />
+          <Logo size={40} />
         </Link>
 
         <div className="flex items-center gap-2.5 sm:gap-3">
