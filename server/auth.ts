@@ -4,22 +4,45 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const SECRET_FILE = join(here, 'data', '.session-secret');
+
+/**
+ * Repertoire de donnees. On reutilise exactement la meme resolution que
+ * `store.ts` : sur Railway ou Render, DATA_DIR pointe vers le volume
+ * persistant, le secret de session doit y vivre aussi. Sinon il serait
+ * regenere a chaque redemarrage et toutes les sessions admin seraient
+ * invalidees — le symptome etant « il faut ressaisir le PIN sans arret ».
+ */
+const DATA_DIR = process.env.DATA_DIR ?? join(here, 'data');
+const SECRET_FILE = join(DATA_DIR, '.session-secret');
 
 /** Duree de validite d'une session admin : une journee de travail. */
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 
 const DEFAULT_PIN = '2468';
 
-function adminPin(): string {
+/** PIN administrateur, ou `null` quand aucun PIN n'est configure en production. */
+function adminPin(): string | null {
   const fromEnv = process.env.ADMIN_PIN?.trim();
   if (fromEnv) return fromEnv;
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error(
-      'ADMIN_PIN est obligatoire en production. Definissez-la dans votre .env ou vos variables d’environnement.',
-    );
-  }
+  // Refuser le PIN par defaut en production : c'est un code connu de tous
+  // les depots publics, on ne peut pas l'utiliser comme garde-fou.
+  if (process.env.NODE_ENV === 'production') return null;
   return DEFAULT_PIN;
+}
+
+/**
+ * Un PIN est-il reellement configure ? C'est la seule distinction a faire en
+ * production : soit l'admin est accessible, soit la plateforme est mal
+ * configuree. On doit pouvoir dire lequel des deux, pas renvoyer un 500.
+ */
+export function isPinConfigured(): boolean {
+  return adminPin() !== null;
+}
+
+export function verifyPin(pin: string): boolean {
+  const expected = adminPin();
+  if (expected === null) return false;
+  return safeEqual(pin, expected);
 }
 
 /**
@@ -59,10 +82,6 @@ function safeEqual(a: string, b: string): boolean {
     return false;
   }
   return timingSafeEqual(bufA, bufB);
-}
-
-export function verifyPin(pin: string): boolean {
-  return safeEqual(pin, adminPin());
 }
 
 export function issueToken(): string {
@@ -106,11 +125,33 @@ export function readToken(req: {
   return null;
 }
 
-/** Avertit une seule fois si le PIN par defaut est utilise. */
-let warned = false;
-export function warnIfDefaultPin(): void {
-  if (warned || process.env.ADMIN_PIN?.trim() || process.env.NODE_ENV === 'production') return;
-  warned = true;
+/**
+ * Signale au demarrage ce qui empechera l'acces admin de fonctionner.
+ *
+ * On ne bloque pas le demarrage : la borne du salon doit rester utilisable
+ * meme si l'admin est mal configure, sinon une variable manquante mettrait
+ * tout le service hors service. On crie dans les logs, et la route de
+ * connexion renvoie un message actionnable.
+ */
+export function warnAboutAuthConfig(): void {
+  if (isPinConfigured()) {
+    if (!process.env.SESSION_SECRET?.trim()) {
+      console.warn(
+        `\n  i  SESSION_SECRET non defini — secret lu/ecrit dans ${SECRET_FILE}\n` +
+          '     Definit SESSION_SECRET pour un secret stable et explicite.\n',
+      );
+    }
+    return;
+  }
+  if (process.env.NODE_ENV === 'production') {
+    console.error(
+      '\n  ✖  ADMIN_PIN MANQUANT — l\'acces administrateur est ferme.\n' +
+        '     Definit ADMIN_PIN dans les variables de ta plateforme\n' +
+        '     (Railway/Render : service > Variables). Sans lui,\n' +
+        '     /api/auth/login repond 503 « Serveur non configure ».\n',
+    );
+    return;
+  }
   console.warn(
     '\n  ⚠  ADMIN_PIN non defini — PIN administrateur par defaut : ' +
       `${DEFAULT_PIN}\n     Definissez ADMIN_PIN dans .env avant la mise en production.\n`,

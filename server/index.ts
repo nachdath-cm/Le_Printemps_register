@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import cors from 'cors';
 import express, { type NextFunction, type Request, type Response } from 'express';
 
-import { issueToken, readToken, verifyPin, verifyToken, warnIfDefaultPin } from './auth.ts';
+import { isPinConfigured, issueToken, readToken, verifyPin, verifyToken, warnAboutAuthConfig } from './auth.ts';
 import { BODY_LIMIT, createSchema, firstError, loginSchema, statusSchema } from './schemas.ts';
 import { countForDay, createRegistration, listRegistrations, setStatus } from './store.ts';
 import { serviceLabel } from '../src/config/services.ts';
@@ -162,6 +162,15 @@ api.post('/auth/login', (req, res) => {
     res.status(400).json({ error: 'PIN requis.' });
     return;
   }
+  // Aucun PIN configure : c'est un probleme de plateforme, pas une erreur de
+  // saisie. Un 500 ou un « code incorrect » ferait chercher l'erreur au
+  // mauvais endroit pendant des heures.
+  if (!isPinConfigured()) {
+    res.status(503).json({
+      error: 'Serveur non configure : la variable ADMIN_PIN est absente.',
+    });
+    return;
+  }
   if (!verifyPin(parsed.data.pin)) {
     res.status(401).json({ error: 'Code incorrect.' });
     return;
@@ -211,7 +220,7 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: 'Erreur interne du serveur.' });
 });
 
-warnIfDefaultPin();
+warnAboutAuthConfig();
 app.listen(PORT, HOST, () => {
   console.log(`  ➜  API Le Printemps : http://localhost:${PORT}`);
   if (existsSync(DIST)) console.log('  ➜  Front servi depuis dist/');
