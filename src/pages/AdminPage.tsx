@@ -1,4 +1,5 @@
 import { Download, Inbox, Phone, RefreshCw, Search } from 'lucide-react';
+import { listPublicServices } from '../lib/api';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { AdminHeader } from '../components/AdminHeader';
@@ -10,9 +11,13 @@ import {
   ApiError,
   exportUrl,
   listRegistrations,
+  setRegistrationAmount,
   setRegistrationStatus,
   tokenStorage,
 } from '../lib/api';
+import { ServicesAdmin } from '../components/admin/ServicesAdmin';
+import { RewardsAdmin } from '../components/admin/RewardsAdmin';
+import { RedemptionsAdmin } from '../components/admin/RedemptionsAdmin';
 import { STATUS_LABEL, type Registration, type RegistrationStatus } from '../lib/types';
 import { formatDateTime, formatDayLabel, localDayKey } from '../lib/utils';
 
@@ -29,8 +34,19 @@ const STATUS_STYLE: Record<RegistrationStatus, string> = {
   annule: 'bg-danger-soft text-danger',
 };
 
+const TABS = [
+  { id: 'registre', label: 'Registre' },
+  { id: 'prestations', label: 'Prestations' },
+  { id: 'recompenses', label: 'Récompenses' },
+  { id: 'echanges', label: 'Échanges' },
+] as const;
+
+type TabId = (typeof TABS)[number]['id'];
+
 export function AdminPage() {
   const [authed, setAuthed] = useState(Boolean(tokenStorage().get()));
+  const [tab, setTab] = useState<TabId>('registre');
+  const [flash, setFlash] = useState<string | null>(null);
   const [rows, setRows] = useState<Registration[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<RegistrationStatus | 'tous'>('tous');
@@ -87,10 +103,23 @@ export function AdminPage() {
     try {
       const updated = await setRegistrationStatus(id, status);
       setRows((prev) => (prev ? prev.map((r) => (r.id === id ? updated : r)) : prev));
+      if (status === 'termine' && updated.xpCredited > 0) {
+        setFlash(`+${updated.xpCredited.toLocaleString('fr-FR')} Gouttes de Rosée créditées.`);
+        window.setTimeout(() => setFlash(null), 6000);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Mise à jour impossible.');
     } finally {
       setBusyId(null);
+    }
+  }
+
+  async function changeAmount(id: string, amountFcfa: number) {
+    try {
+      const updated = await setRegistrationAmount(id, amountFcfa);
+      setRows((prev) => (prev ? prev.map((r) => (r.id === id ? updated : r)) : prev));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Mise à jour impossible.');
     }
   }
 
@@ -117,11 +146,31 @@ export function AdminPage() {
 
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
         <header className="flex flex-col gap-1">
-          <p className="eyebrow">Registre des prestations</p>
+          <p className="eyebrow">Espace employé</p>
           <h1 className="text-ink font-serif text-3xl capitalize sm:text-4xl">
-            {formatDayLabel(day)}
+            {tab === 'registre' ? formatDayLabel(day) : TABS.find((t) => t.id === tab)?.label}
           </h1>
         </header>
+
+        <nav aria-label="Sections" className="bg-primary-light/50 flex gap-1.5 self-start overflow-x-auto rounded-pill p-1.5">
+          {TABS.map((t) => (
+            <FilterPill key={t.id} active={tab === t.id} onClick={() => setTab(t.id)}>
+              {t.label}
+            </FilterPill>
+          ))}
+        </nav>
+
+        {flash && (
+          <p role="status" className="border-success-soft bg-success-soft text-success rounded-tile border px-4 py-3 text-sm font-semibold">
+            {flash}
+          </p>
+        )}
+
+        {tab === 'prestations' && <ServicesAdmin />}
+        {tab === 'recompenses' && <RewardsAdmin />}
+        {tab === 'echanges' && <RedemptionsAdmin />}
+
+        {tab === 'registre' && (<>
 
         {/* --- Commandes ---------------------------------------------------- */}
         <section className="flex flex-col gap-4">
@@ -211,10 +260,12 @@ export function AdminPage() {
                 row={row}
                 busy={busyId === row.id}
                 onChange={(status) => void changeStatus(row.id, status)}
+                onAmount={(amount) => void changeAmount(row.id, amount)}
               />
             ))}
           </ul>
         )}
+        </>)}
       </main>
     </div>
   );
@@ -226,11 +277,44 @@ function RegistrationRow({
   row,
   busy,
   onChange,
+  onAmount,
 }: {
   row: Registration;
   busy: boolean;
   onChange: (status: RegistrationStatus) => void;
+  onAmount: (amountFcfa: number) => void;
 }) {
+  const [amount, setAmount] = useState(row.amountFcfa != null ? String(row.amountFcfa) : '');
+  useEffect(() => {
+    setAmount(row.amountFcfa != null ? String(row.amountFcfa) : '');
+  }, [row.amountFcfa]);
+  // "Prix modifié" : le montant facture differe de la somme catalogue.
+  const [catalog, setCatalog] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    listPublicServices()
+      .then((list) => {
+        if (!alive) return;
+        const prices = new Map(list.map((s) => [s.id, s.priceFcfa]));
+        setCatalog(row.services.reduce((sum, id) => sum + (prices.get(id) ?? 0), 0));
+      })
+      .catch(() => setCatalog(null));
+    return () => {
+      alive = false;
+    };
+  }, [row.services]);
+  const priceModified =
+    catalog !== null && row.amountFcfa != null && row.amountFcfa !== catalog;
+
+  const commitAmount = () => {
+    const parsed = Number(amount.replace(/[^\d]/g, ''));
+    if (Number.isFinite(parsed) && (row.amountFcfa == null || parsed !== row.amountFcfa)) {
+      onAmount(parsed);
+    } else {
+      setAmount(row.amountFcfa != null ? String(row.amountFcfa) : '');
+    }
+  };
+
   return (
     <li className="border-card-border bg-card flex flex-col gap-3 rounded-card border p-4 transition-opacity sm:flex-row sm:items-center sm:justify-between sm:gap-5 sm:p-5">
       <div className="flex min-w-0 flex-col gap-2">
@@ -270,6 +354,33 @@ function RegistrationRow({
         {row.note && <p className="text-muted text-sm">Note : {row.note}</p>}
 
         <p className="text-muted text-xs">{formatDateTime(row.createdAt)}</p>
+
+        {row.status !== 'termine' && (
+          <label className="mt-1 flex items-center gap-2 text-sm">
+            <span className="text-muted">Montant à facturer</span>
+            <input
+              inputMode="numeric"
+              aria-label="Montant à facturer"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              onBlur={commitAmount}
+              onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+              className="border-card-border bg-surface text-ink w-28 rounded-pill border px-3 py-1.5 text-right font-sans text-sm focus:outline-none focus-visible:border-primary-ink"
+            />
+            <span className="text-muted text-xs">FCFA</span>
+            {priceModified && (
+              <span className="bg-primary-light text-primary-ink rounded-pill px-2.5 py-0.5 text-[0.7rem] font-semibold">
+                Prix modifié
+              </span>
+            )}
+          </label>
+        )}
+        {row.status === 'termine' && row.amountFcfa != null && (
+          <p className="text-muted text-xs">
+            Facturé : <strong className="text-ink">{row.amountFcfa.toLocaleString('fr-FR')} F</strong>
+            {priceModified && ' · Prix modifié'} · +{(row.xpEarned ?? 0).toLocaleString('fr-FR')} Gouttes de Rosée
+          </p>
+        )}
       </div>
 
       <div className="flex shrink-0 flex-wrap gap-2">

@@ -65,6 +65,52 @@ export const loginSchema = z.object({
 
 export type CreatePayload = z.infer<typeof createSchema>;
 
+export const amountSchema = z.object({
+  amountFcfa: z
+    .number()
+    .int('Le montant doit être un nombre entier.')
+    .min(0, 'Le montant ne peut pas être négatif.')
+    .max(100_000_000),
+});
+
+export const rewardSchema = z.object({
+  title: z.string().min(1, 'Le titre est requis.').max(80).transform(clean),
+  description: z.string().max(300).transform(clean).default(''),
+  costFlowers: z.number().int().min(1, 'Le coût doit être au moins 1.').max(1_000_000),
+  active: z.boolean().default(true),
+});
+
+export const rewardPatchSchema = rewardSchema.partial();
+
+export const redemptionStatusSchema = z.object({
+  status: z.enum(['used', 'cancelled'], { error: 'Statut inconnu.' }),
+});
+
+export const redeemSchema = z.object({
+  rewardId: z.string().min(1).max(64),
+});
+
+export const phoneLinkRequestSchema = z.object({
+  phone: z
+    .string()
+    .min(6, 'Numéro de téléphone trop court.')
+    .max(25)
+    .transform(clean)
+    .refine((v) => PHONE_PATTERN.test(v), 'Numéro de téléphone invalide.'),
+});
+
+export const phoneLinkConfirmSchema = z.object({
+  code: z.string().trim().regex(/^\d{6}$/, 'Le code fait 6 chiffres.'),
+});
+
+export const servicePriceSchema = z.object({
+  priceFcfa: z
+    .number()
+    .int('Le prix doit être un nombre entier.')
+    .min(0, 'Le prix ne peut pas être négatif.')
+    .max(100_000_000),
+});
+
 export function firstError(error: z.ZodError): string {
   return error.issues[0]?.message ?? 'Données invalides.';
 }

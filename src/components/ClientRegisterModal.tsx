@@ -1,4 +1,5 @@
-import { ArrowRight, Heart } from 'lucide-react';
+import { ArrowRight, ShieldCheck } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObject } from 'react';
 
 import { INSTITUTE } from '../config/institute';
@@ -40,6 +41,7 @@ export function ClientRegisterModal({ open, onClose }: ClientRegisterModalProps)
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  const [spaceToken, setSpaceToken] = useState<string | null>(null);
   const [focusField, setFocusField] = useState<string | null>(null);
   const successRef = useRef<HTMLDivElement>(null);
 
@@ -53,15 +55,9 @@ export function ClientRegisterModal({ open, onClose }: ClientRegisterModalProps)
     setFormError(null);
     setSubmitting(false);
     setDone(false);
+    setSpaceToken(null);
     onClose();
   }, [onClose]);
-
-  // Ferme seule quand l'appel a reussi : une erreur ne doit pas perdre la saisie.
-  useEffect(() => {
-    if (!done) return;
-    const timer = window.setTimeout(finish, 9000);
-    return () => window.clearTimeout(timer);
-  }, [done, finish]);
 
   useEffect(() => {
     if (done) successRef.current?.focus();
@@ -101,7 +97,8 @@ export function ClientRegisterModal({ open, onClose }: ClientRegisterModalProps)
 
     setSubmitting(true);
     try {
-      await createRegistration(toPayload(values));
+      const created = await createRegistration(toPayload(values));
+      setSpaceToken(created.spaceToken ?? null);
       setDone(true);
     } catch (err) {
       setFormError(
@@ -140,7 +137,7 @@ export function ClientRegisterModal({ open, onClose }: ClientRegisterModalProps)
       className="sm:max-w-xl"
     >
       {done ? (
-        <SuccessPanel panelRef={successRef} />
+        <SuccessPanel panelRef={successRef} spaceToken={spaceToken} onClose={finish} />
       ) : (
         <form onSubmit={handleSubmit} noValidate className="flex min-h-0 flex-col">
           <header className="border-primary-light flex flex-col items-center gap-3 border-b px-6 pt-8 pb-6 text-center">
@@ -279,12 +276,20 @@ export function ClientRegisterModal({ open, onClose }: ClientRegisterModalProps)
 /* Ecran de remerciement                                                       */
 /* -------------------------------------------------------------------------- */
 
-function SuccessPanel({ panelRef }: { panelRef: RefObject<HTMLDivElement | null> }) {
+function SuccessPanel({
+  panelRef,
+  spaceToken,
+  onClose,
+}: {
+  panelRef: RefObject<HTMLDivElement | null>;
+  spaceToken: string | null;
+  onClose: () => void;
+}) {
   return (
     <div
       ref={panelRef}
       tabIndex={-1}
-      className="flex flex-col items-center gap-5 px-6 py-12 text-center outline-none"
+      className="flex max-h-[92dvh] flex-col items-center gap-5 overflow-y-auto px-6 py-12 text-center outline-none"
     >
       <span className="bg-success-soft text-success animate-check flex size-20 items-center justify-center rounded-full">
         <svg viewBox="0 0 24 24" fill="none" className="size-10" aria-hidden="true">
@@ -304,21 +309,56 @@ function SuccessPanel({ panelRef }: { panelRef: RefObject<HTMLDivElement | null>
         </h2>
         <p className="text-muted max-w-sm text-sm">
           Votre inscription a bien été enregistrée. L’équipe du Printemps vous accueille à{' '}
-          {INSTITUTE.location} et vous rappelle au{' '}
-          <a
-            href={`tel:${INSTITUTE.phone.replace(/\s/g, '')}`}
-            className="text-primary-ink font-semibold underline decoration-primary-glow underline-offset-4"
-          >
-            {INSTITUTE.phoneDisplay}
-          </a>
-          .
+          {INSTITUTE.location}.
         </p>
       </div>
 
-      <p className="text-muted animate-fade-up flex items-center gap-2 text-sm">
-        <Heart className="text-primary-ink size-4" aria-hidden="true" />
-        Cette page se ferme toute seule dans quelques instants.
-      </p>
+      {spaceToken && <SpaceBlock spaceToken={spaceToken} />}
+
+      <Button variant="secondary" onClick={onClose}>
+        Fermer
+      </Button>
     </div>
+  );
+}
+
+/** Lien personnel vers l'espace fidélité, affiché après inscription. */
+function SpaceBlock({ spaceToken }: { spaceToken: string }) {
+  const url = new URL(`/espace/${spaceToken}`, window.location.origin).toString();
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <section
+      aria-label="Votre espace personnel"
+      className="border-primary-light bg-primary-light/40 flex w-full max-w-sm flex-col items-center gap-4 rounded-card border p-5"
+    >
+      <h3 className="text-ink font-serif text-lg">Votre espace personnel</h3>
+      <p className="text-muted text-xs leading-relaxed">
+        Ce lien est personnel : il vous permet de suivre vos visites et vos Fleurs de
+        Printemps. Gardez-le précieusement.
+      </p>
+      <div className="border-primary-light rounded-tile border bg-white p-3">
+        <QRCodeSVG value={url} size={132} level="M" fgColor="#2d1f1d" bgColor="#ffffff" />
+      </div>
+      <p className="text-primary-ink font-sans text-xs break-all">{url}</p>
+      <button
+        type="button"
+        onClick={copy}
+        className="text-primary-ink border-primary hover:bg-primary-light flex cursor-pointer items-center gap-2 rounded-pill border px-5 py-2.5 text-sm font-medium transition-colors"
+      >
+        <ShieldCheck className="size-4" aria-hidden="true" />
+        {copied ? 'Lien copié' : 'Copier le lien'}
+      </button>
+    </section>
   );
 }

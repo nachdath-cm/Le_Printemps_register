@@ -1,4 +1,12 @@
-import type { CreateRegistrationInput, Registration, RegistrationStatus } from './types';
+import type {
+  CreateRegistrationInput,
+  Registration,
+  RegistrationStatus,
+  RedemptionStatus,
+  Reward,
+  SpaceData,
+  ServicePrice,
+} from './types';
 
 /**
  * Client de l'API du registre.
@@ -57,27 +65,149 @@ async function readErrorMessage(response: Response): Promise<string> {
 /* Inscriptions                                                                */
 /* -------------------------------------------------------------------------- */
 
-export function createRegistration(input: CreateRegistrationInput): Promise<Registration> {
-  return request<Registration>('/registrations', {
+export function createRegistration(
+  input: CreateRegistrationInput,
+): Promise<Registration & { spaceToken: string }> {
+  return request<Registration & { spaceToken: string }>('/registrations', {
     method: 'POST',
     body: JSON.stringify(input),
+  });
+}
+
+export function setRegistrationAmount(id: string, amountFcfa: number): Promise<Registration> {
+  return request<Registration>(
+    `/registrations/${encodeURIComponent(id)}/amount`,
+    { method: 'PATCH', body: JSON.stringify({ amountFcfa }) },
+    true,
+  );
+}
+
+export function setRegistrationStatus(
+  id: string,
+  status: RegistrationStatus,
+): Promise<Registration & { xpCredited: number }> {
+  return request<Registration & { xpCredited: number }>(
+    `/registrations/${encodeURIComponent(id)}/status`,
+    { method: 'PATCH', body: JSON.stringify({ status }) },
+    true,
+  );
+}
+
+/* ----------------------------------------------------------------------- */
+/* Catalogue des prestations et de leurs prix                              */
+/* ----------------------------------------------------------------------- */
+
+export interface PublicService {
+  id: string;
+  label: string;
+  categoryId: string;
+  priceFcfa: number;
+}
+
+export function listPublicServices(): Promise<PublicService[]> {
+  return request<PublicService[]>('/services');
+}
+
+export function setServicePrice(id: string, priceFcfa: number): Promise<ServicePrice> {
+  return request<ServicePrice>(
+    `/services/${encodeURIComponent(id)}`,
+    { method: 'PATCH', body: JSON.stringify({ priceFcfa }) },
+    true,
+  );
+}
+
+/* ----------------------------------------------------------------------- */
+/* Récompenses et échanges                                                 */
+/* ----------------------------------------------------------------------- */
+
+export function listRewards(): Promise<Reward[]> {
+  return request<Reward[]>('/rewards', {}, true);
+}
+
+export function createReward(input: {
+  title: string;
+  description: string;
+  costFlowers: number;
+  active: boolean;
+}): Promise<Reward> {
+  return request<Reward>(
+    '/rewards',
+    { method: 'POST', body: JSON.stringify(input) },
+    true,
+  );
+}
+
+export function updateReward(
+  id: string,
+  patch: Partial<Pick<Reward, 'title' | 'description' | 'costFlowers' | 'active'>>,
+): Promise<Reward> {
+  return request<Reward>(
+    `/rewards/${encodeURIComponent(id)}`,
+    { method: 'PATCH', body: JSON.stringify(patch) },
+    true,
+  );
+}
+
+export function deleteReward(id: string): Promise<void> {
+  return request<void>(`/rewards/${encodeURIComponent(id)}`, { method: 'DELETE' }, true);
+}
+
+export interface RedemptionRow {
+  id: string;
+  clientName: string;
+  rewardTitle: string;
+  status: RedemptionStatus;
+  createdAt: string;
+  usedAt: string | null;
+}
+
+export function listRedemptions(): Promise<RedemptionRow[]> {
+  return request<RedemptionRow[]>('/redemptions', {}, true);
+}
+
+export function setRedemptionStatus(id: string, status: RedemptionStatus): Promise<RedemptionRow> {
+  return request<RedemptionRow>(
+    `/redemptions/${encodeURIComponent(id)}`,
+    { method: 'PATCH', body: JSON.stringify({ status }) },
+    true,
+  );
+}
+
+/* ----------------------------------------------------------------------- */
+/* Espace client public                                                    */
+/* ----------------------------------------------------------------------- */
+
+export function getSpace(token: string): Promise<SpaceData> {
+  return request<SpaceData>(`/space/${encodeURIComponent(token)}`);
+}
+
+export function redeemFromSpace(token: string, rewardId: string): Promise<SpaceData> {
+  return request<SpaceData>(`/space/${encodeURIComponent(token)}/redeem`, {
+    method: 'POST',
+    body: JSON.stringify({ rewardId }),
+  });
+}
+
+export function requestPhoneLink(
+  token: string,
+  phone: string,
+): Promise<{ code: string; whatsappUrl: string }> {
+  return request<{ code: string; whatsappUrl: string }>(
+    `/space/${encodeURIComponent(token)}/phone-link`,
+    { method: 'POST', body: JSON.stringify({ phone }) },
+  );
+}
+
+export function confirmPhoneLink(token: string, code: string): Promise<{ ok: true }> {
+  return request<{ ok: true }>(`/space/${encodeURIComponent(token)}/phone-link/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({ code }),
   });
 }
 
 export function listRegistrations(params: { day?: string } = {}): Promise<Registration[]> {
   const query = params.day ? `?day=${encodeURIComponent(params.day)}` : '';
   return request<Registration[]>(`/registrations${query}`, {}, true);
-}
-
-export function setRegistrationStatus(
-  id: string,
-  status: RegistrationStatus,
-): Promise<Registration> {
-  return request<Registration>(
-    `/registrations/${encodeURIComponent(id)}/status`,
-    { method: 'PATCH', body: JSON.stringify({ status }) },
-    true,
-  );
 }
 
 /* -------------------------------------------------------------------------- */

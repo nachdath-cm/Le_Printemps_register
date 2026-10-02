@@ -6,6 +6,8 @@ import {
   servicesByCategory,
 } from '../config/services';
 import { cn } from '../lib/utils';
+import { listPublicServices } from '../lib/api';
+import { useEffect, useState } from 'react';
 
 export interface ServicePickerProps {
   selected: string[];
@@ -33,6 +35,13 @@ export function ServicePicker({
   idPrefix = 'svc',
   disabled = false,
 }: ServicePickerProps) {
+  const [prices, setPrices] = useState<Record<string, number>>({});
+  useEffect(() => {
+    listPublicServices()
+      .then((list) => setPrices(Object.fromEntries(list.map((s) => [s.id, s.priceFcfa]))))
+      .catch(() => setPrices({}));
+  }, []);
+
   const toggle = (id: string) => {
     if (disabled) return;
     onChange(
@@ -59,6 +68,7 @@ export function ServicePicker({
                   key={service.id}
                   id={`${idPrefix}-${service.id}`}
                   label={service.label}
+                  price={prices[service.id] ?? null}
                   checked={selected.includes(service.id)}
                   onToggle={() => toggle(service.id)}
                   disabled={disabled}
@@ -124,13 +134,14 @@ export function ServicePicker({
 interface PastilleProps {
   id: string;
   label: string;
+  price?: number | null;
   checked: boolean;
   onToggle: () => void;
   disabled?: boolean;
   icon?: React.ReactNode;
 }
 
-function Pastille({ id, label, checked, onToggle, disabled, icon }: PastilleProps) {
+function Pastille({ id, label, price, checked, onToggle, disabled, icon }: PastilleProps) {
   return (
     <button
       type="button"
@@ -161,6 +172,11 @@ function Pastille({ id, label, checked, onToggle, disabled, icon }: PastilleProp
       </span>
       {icon}
       {label}
+      {price != null && price > 0 && (
+        <span className={cn('text-[0.7rem] font-semibold', checked ? 'text-white/85' : 'text-muted')}>
+          {price.toLocaleString('fr-FR')} F
+        </span>
+      )}
     </button>
   );
 }
