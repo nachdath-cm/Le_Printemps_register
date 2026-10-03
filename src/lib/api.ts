@@ -249,8 +249,8 @@ export function clientFirstVisit(input: {
   });
 }
 
-export function requestClientCode(phone: string): Promise<{ whatsappUrl: string }> {
-  return request<{ whatsappUrl: string }>('/auth/client/request-code', {
+export function requestClientCode(phone: string): Promise<{ code: string; whatsappUrl: string }> {
+  return request<{ code: string; whatsappUrl: string }>('/auth/client/request-code', {
     method: 'POST',
     body: JSON.stringify({ phone }),
   });

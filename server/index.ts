@@ -333,7 +333,7 @@ api.post('/auth/client/request-code', async (req, res) => {
   // c'est ainsi qu'il « recoit » son code sans SMS.
   const waDigits = phoneDigits.startsWith('229') ? phoneDigits : `229${phoneDigits}`;
   const text = encodeURIComponent(`Mon code de connexion Le Printemps : ${code}`);
-  res.json({ whatsappUrl: `https://wa.me/${waDigits}?text=${text}` });
+  res.json({ code, whatsappUrl: `https://wa.me/${waDigits}?text=${text}` });
 });
 
 api.post('/auth/client/verify-code', async (req, res) => {

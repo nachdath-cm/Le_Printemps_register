@@ -106,6 +106,7 @@ function Login({ onDone, onBack }: { onDone: () => void; onBack: () => void }) {
     try {
       const result = await requestClientCode(phone.trim());
       setWhatsappUrl(result.whatsappUrl);
+      setCode(result.code);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Envoi impossible.');
     } finally {
