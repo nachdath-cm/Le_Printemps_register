@@ -1,6 +1,6 @@
-import { ArrowRight, ShieldCheck } from 'lucide-react';
-import { QRCodeSVG } from 'qrcode.react';
+import { ArrowRight } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObject } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { INSTITUTE } from '../config/institute';
 import { ApiError, createRegistration } from '../lib/api';
@@ -41,7 +41,7 @@ export function ClientRegisterModal({ open, onClose }: ClientRegisterModalProps)
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
-  const [spaceToken, setSpaceToken] = useState<string | null>(null);
+  const navigate = useNavigate();
   const [focusField, setFocusField] = useState<string | null>(null);
   const successRef = useRef<HTMLDivElement>(null);
 
@@ -55,7 +55,6 @@ export function ClientRegisterModal({ open, onClose }: ClientRegisterModalProps)
     setFormError(null);
     setSubmitting(false);
     setDone(false);
-    setSpaceToken(null);
     onClose();
   }, [onClose]);
 
@@ -98,8 +97,11 @@ export function ClientRegisterModal({ open, onClose }: ClientRegisterModalProps)
     setSubmitting(true);
     try {
       const created = await createRegistration(toPayload(values));
-      setSpaceToken(created.spaceToken ?? null);
       setDone(true);
+      // Acces direct a l'espace personnel, sans QR intermediaire.
+      if (created.spaceToken) {
+        navigate(`/espace/${created.spaceToken}`);
+      }
     } catch (err) {
       setFormError(
         err instanceof ApiError
@@ -137,7 +139,7 @@ export function ClientRegisterModal({ open, onClose }: ClientRegisterModalProps)
       className="sm:max-w-xl"
     >
       {done ? (
-        <SuccessPanel panelRef={successRef} spaceToken={spaceToken} onClose={finish} />
+        <SuccessPanel panelRef={successRef} onClose={finish} />
       ) : (
         <form onSubmit={handleSubmit} noValidate className="flex min-h-0 flex-col">
           <header className="border-primary-light flex flex-col items-center gap-3 border-b px-6 pt-8 pb-6 text-center">
@@ -278,11 +280,9 @@ export function ClientRegisterModal({ open, onClose }: ClientRegisterModalProps)
 
 function SuccessPanel({
   panelRef,
-  spaceToken,
   onClose,
 }: {
   panelRef: RefObject<HTMLDivElement | null>;
-  spaceToken: string | null;
   onClose: () => void;
 }) {
   return (
@@ -313,8 +313,6 @@ function SuccessPanel({
         </p>
       </div>
 
-      {spaceToken && <SpaceBlock spaceToken={spaceToken} />}
-
       <Button variant="secondary" onClick={onClose}>
         Fermer
       </Button>
@@ -322,43 +320,3 @@ function SuccessPanel({
   );
 }
 
-/** Lien personnel vers l'espace fidélité, affiché après inscription. */
-function SpaceBlock({ spaceToken }: { spaceToken: string }) {
-  const url = new URL(`/espace/${spaceToken}`, window.location.origin).toString();
-  const [copied, setCopied] = useState(false);
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setCopied(false);
-    }
-  };
-
-  return (
-    <section
-      aria-label="Votre espace personnel"
-      className="border-primary-light bg-primary-light/40 flex w-full max-w-sm flex-col items-center gap-4 rounded-card border p-5"
-    >
-      <h3 className="text-ink font-serif text-lg">Votre espace personnel</h3>
-      <p className="text-muted text-xs leading-relaxed">
-        Ce lien est personnel : il vous permet de suivre vos visites et vos Fleurs de
-        Printemps. Gardez-le précieusement.
-      </p>
-      <div className="border-primary-light rounded-tile border bg-white p-3">
-        <QRCodeSVG value={url} size={132} level="M" fgColor="#2d1f1d" bgColor="#ffffff" />
-      </div>
-      <p className="text-primary-ink font-sans text-xs break-all">{url}</p>
-      <button
-        type="button"
-        onClick={copy}
-        className="text-primary-ink border-primary hover:bg-primary-light flex cursor-pointer items-center gap-2 rounded-pill border px-5 py-2.5 text-sm font-medium transition-colors"
-      >
-        <ShieldCheck className="size-4" aria-hidden="true" />
-        {copied ? 'Lien copié' : 'Copier le lien'}
-      </button>
-    </section>
-  );
-}
