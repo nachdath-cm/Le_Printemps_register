@@ -18,6 +18,9 @@ const SECRET_FILE = join(DATA_DIR, '.session-secret');
 /** Duree de validite d'une session admin : une journee de travail. */
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 
+/** Duree de validite d'une session client : 90 jours. */
+const CLIENT_TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
 const DEFAULT_PIN = '2468';
 
 /** PIN administrateur, ou `null` quand aucun PIN n'est configure en production. */
@@ -84,12 +87,40 @@ function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(bufA, bufB);
 }
 
-export function issueToken(): string {
+function issueSigned(data: Record<string, unknown>, ttl: number): string {
   const payload = Buffer.from(
-    JSON.stringify({ exp: Date.now() + TOKEN_TTL_MS }),
+    JSON.stringify({ ...data, exp: Date.now() + ttl }),
     'utf8',
   ).toString('base64url');
   return `${payload}.${sign(payload)}`;
+}
+
+function readSigned<T extends { exp?: number }>(token: string | undefined | null): T | null {
+  if (!token) return null;
+  const dot = token.lastIndexOf('.');
+  if (dot <= 0) return null;
+  const payload = token.slice(0, dot);
+  const signature = token.slice(dot + 1);
+  if (!safeEqual(signature, sign(payload))) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as T;
+    return typeof decoded.exp === 'number' && Date.now() < decoded.exp ? decoded : null;
+  } catch {
+    return null;
+  }
+}
+
+export function issueToken(): string {
+  return issueSigned({}, TOKEN_TTL_MS);
+}
+
+export function issueClientToken(clientId: string): string {
+  return issueSigned({ cid: clientId }, CLIENT_TOKEN_TTL_MS);
+}
+
+export function readClientToken(token: string | undefined | null): string | null {
+  const decoded = readSigned<{ cid?: string; exp?: number }>(token);
+  return decoded && typeof decoded.cid === 'string' ? decoded.cid : null;
 }
 
 export function verifyToken(token: string | undefined | null): boolean {

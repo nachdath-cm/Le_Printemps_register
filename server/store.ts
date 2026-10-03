@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -169,7 +169,23 @@ let clientsCache: Client[] | null = null;
 async function readClients(): Promise<Client[]> {
   if (clientsCache) return clientsCache;
   const parsed = await readJson<unknown>(CLIENTS_FILE, []);
-  clientsCache = Array.isArray(parsed) ? (parsed as Client[]) : [];
+  const rows = Array.isArray(parsed) ? (parsed as Array<Record<string, unknown>>) : [];
+  // Normalise l'historique : phone requis, space_token supprime.
+  clientsCache = rows.map((row) => {
+    const claimed = typeof row.claimedPhone === 'string' ? row.claimedPhone : '';
+    const phone =
+      typeof row.phone === 'string' && row.phone ? normalizePhone(row.phone) : claimed;
+    return {
+      v: 1 as const,
+      id: String(row.id),
+      createdAt: String(row.createdAt),
+      firstName: String(row.firstName ?? ''),
+      lastName: String(row.lastName ?? ''),
+      phone,
+      claimedPhone: claimed || normalizePhone(phone),
+      totalXp: typeof row.totalXp === 'number' ? row.totalXp : 0,
+    };
+  });
   return clientsCache;
 }
 
@@ -197,9 +213,7 @@ function normalizePhone(phone: string): string {
 
 /** Rapprochement d'un client existant : numéro lié OU numéro saisi au registre. */
 function findClientByPhone(clients: Client[], digits: string): Client | undefined {
-  return clients.find(
-    (c) => c.claimedPhone === digits || (c.phone !== null && normalizePhone(c.phone) === digits),
-  );
+  return clients.find((c) => c.claimedPhone === digits || normalizePhone(c.phone) === digits);
 }
 
 export interface NewRegistration {
@@ -213,7 +227,7 @@ export interface NewRegistration {
 
 export async function createRegistration(
   input: NewRegistration,
-): Promise<Registration & { spaceToken: string }> {
+): Promise<Registration> {
   return enqueue(async () => {
     const all = await readRegistrations();
     const clients = await readClients();
@@ -227,9 +241,8 @@ export async function createRegistration(
         createdAt: new Date().toISOString(),
         firstName: input.firstName,
         lastName: input.lastName,
-        phone: null,
+        phone: digits,
         claimedPhone: digits,
-        spaceToken: randomBytes(32).toString('base64url'),
         totalXp: 0,
       };
       clients.push(client);
@@ -238,6 +251,7 @@ export async function createRegistration(
       client.firstName = input.firstName;
       client.lastName = input.lastName;
       if (!client.claimedPhone) client.claimedPhone = digits;
+      if (!client.phone) client.phone = digits;
     }
 
     const now = new Date();
@@ -260,7 +274,7 @@ export async function createRegistration(
     all.push(record);
     await writeJson(DATA_FILE, all);
     await writeJson(CLIENTS_FILE, clients);
-    return { ...record, spaceToken: client.spaceToken };
+    return record;
   });
 }
 
@@ -348,17 +362,28 @@ export { REGISTRATION_STATUSES };
 /* Espace client                                                           */
 /* ----------------------------------------------------------------------- */
 
-export async function getClientByToken(token: string): Promise<Client | null> {
+export async function getClientById(id: string): Promise<Client | null> {
   const clients = await readClients();
-  return clients.find((c) => c.spaceToken === token) ?? null;
+  return clients.find((c) => c.id === id) ?? null;
 }
 
-export async function getSpaceData(token: string): Promise<SpaceData | null> {
+export async function getMeData(clientId: string): Promise<SpaceData | null> {
   const clients = await readClients();
-  const client = clients.find((c) => c.spaceToken === token);
+  const client = clients.find((c) => c.id === clientId);
   if (!client) return null;
 
   const all = await readRegistrations();
+  const pending = all
+    .filter((r) => r.clientId === client.id && r.status === 'en_attente')
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const pendingVisit = pending
+    ? {
+        id: pending.id,
+        createdAt: pending.createdAt,
+        services: pending.services,
+        amountFcfa: pending.amountFcfa ?? 0,
+      }
+    : null;
   const visits = all
     .filter((r) => r.clientId === client.id && r.status === 'termine')
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -382,10 +407,10 @@ export async function getSpaceData(token: string): Promise<SpaceData | null> {
       firstName: client.firstName,
       lastName: client.lastName,
       totalXp: client.totalXp,
-      phoneLinked: client.phone !== null,
     },
     flowersTotal,
     flowersAvailable,
+    pendingVisit,
     visits,
     rewards: rewards.filter((r) => r.active),
     redemptions: redemptions
@@ -402,11 +427,11 @@ export async function getSpaceData(token: string): Promise<SpaceData | null> {
   };
 }
 
-export async function redeemReward(token: string, rewardId: string): Promise<SpaceData | { error: string }> {
+export async function redeemReward(clientId: string, rewardId: string): Promise<SpaceData | { error: string }> {
   return enqueue(async () => {
     const clients = await readClients();
-    const client = clients.find((c) => c.spaceToken === token);
-    if (!client) return { error: 'Espace introuvable.' };
+    const client = clients.find((c) => c.id === clientId);
+    if (!client) return { error: 'Client introuvable.' };
 
     const { rewards, redemptions } = await readLoyalty();
     const reward = rewards.find((r) => r.id === rewardId && r.active);
@@ -429,8 +454,8 @@ export async function redeemReward(token: string, rewardId: string): Promise<Spa
       usedAt: null,
     });
     await writeJson(LOYALTY_FILE, { rewards, redemptions });
-    const fresh = await getSpaceData(token);
-    return (fresh ?? { error: 'Espace introuvable.' }) as SpaceData | { error: string };
+    const fresh = await getMeData(client.id);
+    return (fresh ?? { error: 'Client introuvable.' }) as SpaceData | { error: string };
   });
 }
 
@@ -526,83 +551,140 @@ export async function deleteReward(id: string): Promise<boolean> {
 }
 
 /* ----------------------------------------------------------------------- */
-/* Liaison du numéro de téléphone                                          */
+/* Connexion client : code a usage unique (OTP)                            */
 /* ----------------------------------------------------------------------- */
 
-interface PhoneLinkCode {
+interface OtpEntry {
   code: string;
-  phone: string;
   expiresAt: number;
+  attempts: number;
+  consumed: boolean;
+  createdAt: number;
 }
 
-const phoneLinkCodes = new Map<string, PhoneLinkCode>();
+const otpByPhone = new Map<string, OtpEntry>();
 
-const PHONE_LINK_TTL_MS = 10 * 60 * 1000;
+const OTP_TTL_MS = 10 * 60 * 1000;
+const OTP_MAX_ATTEMPTS = 5;
 
-export async function createPhoneLinkCode(token: string, phone: string): Promise<{ code: string } | { error: string }> {
+const NEUTRAL_ERROR = 'Code incorrect ou expiré.';
+
+/** Cree (ou remplace) un code a usage unique pour ce numero. */
+export function createOtp(phone: string): { code: string } {
+  const digits = normalizePhone(phone);
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  otpByPhone.set(digits, {
+    code,
+    expiresAt: Date.now() + OTP_TTL_MS,
+    attempts: 0,
+    consumed: false,
+    createdAt: Date.now(),
+  });
+  return { code };
+}
+
+/** Verifie le code sans rien reveler sur l'existence du numero. */
+export function verifyOtp(phone: string, code: string): { ok: true; client: Client } | { error: string } {
+  const digits = normalizePhone(phone);
+  const entry = otpByPhone.get(digits);
+  if (!entry || entry.consumed || entry.expiresAt < Date.now()) {
+    return { error: NEUTRAL_ERROR };
+  }
+  entry.attempts += 1;
+  if (entry.attempts > OTP_MAX_ATTEMPTS) {
+    entry.consumed = true;
+    return { error: NEUTRAL_ERROR };
+  }
+  if (entry.code !== code.trim()) {
+    return { error: NEUTRAL_ERROR };
+  }
+  entry.consumed = true;
+  const client = clientsCache?.find((c) => normalizePhone(c.phone) === digits);
+  if (!client) return { error: NEUTRAL_ERROR };
+  return { ok: true, client };
+}
+
+// Purge periodique des codes expires.
+const otpTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of otpByPhone) {
+    if (entry.expiresAt < now && now - entry.createdAt > 60 * 60 * 1000) {
+      otpByPhone.delete(key);
+    }
+  }
+}, 10 * 60 * 1000);
+otpTimer.unref?.();
+
+/* ----------------------------------------------------------------------- */
+/* Visite creee par le client connecte                                     */
+/* ----------------------------------------------------------------------- */
+
+export async function createVisitForClient(
+  clientId: string,
+  services: string[],
+): Promise<Registration | { error: string } | null> {
   return enqueue(async () => {
     const clients = await readClients();
-    const client = clients.find((c) => c.spaceToken === token);
-    if (!client) return { error: 'Espace introuvable.' };
-    if (client.phone) return { error: 'Ce compte a déjà un numéro lié.' };
+    const client = clients.find((c) => c.id === clientId);
+    if (!client) return null;
 
-    const digits = normalizePhone(phone);
-    if (digits.length < 8) return { error: 'Numéro de téléphone invalide.' };
-    const taken = clients.find(
-      (c) => c.id !== client.id && c.phone !== null && normalizePhone(c.phone) === digits,
-    );
-    if (taken) return { error: 'Ce numéro est déjà lié à un autre espace.' };
+    const all = await readRegistrations();
+    const pending = all.find((r) => r.clientId === client.id && r.status === 'en_attente');
+    if (pending) {
+      return { error: 'Vous avez déjà une visite en attente. Un seul passage à la fois.' };
+    }
 
-    const code = String(Math.floor(100000 + Math.random() * 900000));
-    phoneLinkCodes.set(token, { code, phone: digits, expiresAt: Date.now() + PHONE_LINK_TTL_MS });
-    return { code };
+    const now = new Date();
+    const record: Registration = {
+      v: REGISTRATION_VERSION,
+      id: randomUUID(),
+      createdAt: now.toISOString(),
+      day: dayKeyOf(now),
+      firstName: client.firstName,
+      lastName: client.lastName,
+      phone: client.phone,
+      services,
+      other: '',
+      note: '',
+      status: 'en_attente',
+      clientId: client.id,
+      amountFcfa: await catalogAmount(services),
+      xpEarned: null,
+    };
+    all.push(record);
+    await writeJson(DATA_FILE, all);
+    return record;
   });
 }
 
-export async function confirmPhoneLinkCode(
-  token: string,
-  code: string,
-): Promise<{ ok: true } | { error: string }> {
+/** Premier passage : cree le client si besoin et ouvre sa session. */
+export async function firstVisit(input: {
+  firstName: string;
+  lastName: string;
+  phone: string;
+}): Promise<Client | { exists: true } | null> {
   return enqueue(async () => {
-    const entry = phoneLinkCodes.get(token);
-    if (!entry || entry.expiresAt < Date.now()) {
-      phoneLinkCodes.delete(token);
-      return { error: 'Code expiré. Demandez un nouveau code.' };
-    }
-    if (entry.code !== code.trim()) {
-      return { error: 'Code incorrect.' };
-    }
     const clients = await readClients();
-    const client = clients.find((c) => c.spaceToken === token);
-    if (!client) return { error: 'Espace introuvable.' };
-
-    const digits = entry.phone;
-    const taken = clients.find(
-      (c) => c.id !== client.id && c.phone !== null && normalizePhone(c.phone) === digits,
-    );
-    if (taken) return { error: 'Ce numéro est déjà lié à un autre espace.' };
-
-    // Fusion : si un autre client existait avec ce numéro comme claimedPhone,
-    // on rebascule ses visites sur le compte lié.
-    const orphan = clients.find((c) => c.id !== client.id && c.claimedPhone === digits && c.phone === null);
-    if (orphan) {
-      const all = await readRegistrations();
-      for (const r of all) {
-        if (r.clientId === orphan.id) r.clientId = client.id;
-      }
-      client.totalXp += orphan.totalXp;
-      clientsCache = clients.filter((c) => c.id !== orphan.id);
-      client.phone = digits;
-      client.claimedPhone = digits;
-      await writeJson(DATA_FILE, all);
-      await writeJson(CLIENTS_FILE, clientsCache);
-    } else {
-      client.phone = digits;
-      client.claimedPhone = digits;
-      await writeJson(CLIENTS_FILE, clients);
+    const digits = normalizePhone(input.phone);
+    if (digits.length < 8) return null;
+    const existing = findClientByPhone(clients, digits);
+    if (existing) {
+      // Un compte existe deja pour ce numero : il faut passer par le code.
+      return { exists: true };
     }
-    phoneLinkCodes.delete(token);
-    return { ok: true };
+    const client: Client = {
+      v: 1,
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+      firstName: input.firstName,
+      lastName: input.lastName,
+      phone: digits,
+      claimedPhone: digits,
+      totalXp: 0,
+    };
+    clients.push(client);
+    await writeJson(CLIENTS_FILE, clients);
+    return client;
   });
 }
 
@@ -626,9 +708,8 @@ async function migrateLegacy(): Promise<void> {
         createdAt: r.createdAt,
         firstName: r.firstName,
         lastName: r.lastName,
-        phone: null,
+        phone: digits,
         claimedPhone: digits,
-        spaceToken: randomBytes(32).toString('base64url'),
         totalXp: 0,
       };
       clients.push(client);

@@ -11,11 +11,13 @@ import {
   BODY_LIMIT,
   amountSchema,
   createSchema,
+  createVisitSchema,
   firstError,
+  firstVisitSchema,
   loginSchema,
-  phoneLinkConfirmSchema,
-  phoneLinkRequestSchema,
+  phoneOnlySchema,
   redeemSchema,
+  verifyCodeSchema,
   redemptionStatusSchema,
   rewardPatchSchema,
   rewardSchema,
@@ -24,14 +26,16 @@ import {
 } from './schemas.ts';
 import { PIN_LENGTH } from '../src/lib/constants.ts';
 import {
-  confirmPhoneLinkCode,
   countForDay,
-  createPhoneLinkCode,
+  createOtp,
   createReward,
   createRegistration,
+  createVisitForClient,
   deleteReward,
   ensureStoreReady,
-  getSpaceData,
+  firstVisit,
+  getClientById,
+  getMeData,
   listRedemptions,
   listRegistrations,
   listRewards,
@@ -42,9 +46,10 @@ import {
   setServicePrice,
   setStatus,
   updateReward,
+  verifyOtp,
 } from './store.ts';
+import { issueClientToken, readClientToken } from './auth.ts';
 import { SERVICE_BY_ID, SERVICES, serviceLabel } from '../src/config/services.ts';
-import { INSTITUTE } from '../src/config/institute.ts';
 import { STATUS_LABEL } from '../src/lib/types.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -69,7 +74,7 @@ app.disable('x-powered-by');
 // accessible, on lui fait confiance pour X-Forwarded-For.
 app.set('trust proxy', 1);
 // En developpement le front tourne sur :5173 et dialogue avec l'API sur :5174.
-app.use(cors({ origin: true, credentials: false }));
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: BODY_LIMIT }));
 
 /** Toute route /api/* non trouvee repond en JSON, jamais en HTML. */
@@ -224,42 +229,167 @@ api.patch('/registrations/:id/amount', requireAdmin, async (req, res) => {
 });
 
 /* ----------------------------------------------------------------------- */
-/* Espace client public — tout est scoppé par le space_token de l'URL       */
+/* Connexion client par OTP (WhatsApp) + session cookie                    */
 /* ----------------------------------------------------------------------- */
 
-function tokenParam(req: Request): string | null {
-  const token = (req.params as { token?: unknown }).token;
-  return typeof token === 'string' && token.length >= 16 && token.length <= 128 ? token : null;
+const CLIENT_COOKIE = 'lp_client';
+
+function readCookie(req: Request, name: string): string | null {
+  const header = req.headers.cookie;
+  if (!header) return null;
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() === name) {
+      return decodeURIComponent(part.slice(eq + 1).trim());
+    }
+  }
+  return null;
 }
 
-api.get('/space/:token', async (req, res) => {
-  const token = tokenParam(req);
-  if (!token) {
-    res.status(404).json({ error: 'Lien invalide.' });
+function setClientCookie(res: Response, token: string | null): void {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  if (token === null) {
+    res.setHeader('Set-Cookie', `${CLIENT_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
+    return;
+  }
+  // 90 jours.
+  res.setHeader(
+    'Set-Cookie',
+    `${CLIENT_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${90 * 24 * 3600}${secure}`,
+  );
+}
+
+/** Exige une session client valide, et pose req.clientId. */
+async function requireClient(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const cid = readClientToken(readCookie(req, CLIENT_COOKIE));
+  if (!cid) {
+    res.status(401).json({ error: 'Connectez-vous pour accéder à votre espace.' });
+    return;
+  }
+  const client = await getClientById(cid);
+  if (!client) {
+    setClientCookie(res, null);
+    res.status(401).json({ error: 'Session expirée. Reconnectez-vous.' });
+    return;
+  }
+  (req as unknown as { clientId: string }).clientId = cid;
+  next();
+}
+
+function clientIdOf(req: Request): string {
+  return (req as unknown as { clientId: string }).clientId;
+}
+
+/** Premier passage : creation du client (ou rattachement) + session immediate. */
+api.post('/auth/client/first-visit', async (req, res) => {
+  const scope = `firstvisit:${req.ip ?? 'inconnu'}`;
+  const verdict = checkLoginRate(scope);
+  if (!verdict.ok) {
+    res.status(429).json({ error: 'Trop de tentatives. Réessayez plus tard.' });
+    return;
+  }
+  const parsed = firstVisitSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: firstError(parsed.error) });
     return;
   }
   try {
-    const data = await getSpaceData(token);
+    const client = await firstVisit(parsed.data);
+    if (!client) {
+      res.status(400).json({ error: 'Numéro de téléphone invalide.' });
+      return;
+    }
+    if ('exists' in client) {
+      res.status(409).json({ error: 'Un compte existe déjà pour ce numéro. Utilisez « Se connecter à mon espace ».' });
+      return;
+    }
+    setClientCookie(res, issueClientToken(client.id));
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Inscription impossible.' });
+  }
+});
+
+/** Demande d'un code OTP : renvoie le lien wa.me pre-rempli vers le client. */
+api.post('/auth/client/request-code', async (req, res) => {
+  const parsed = phoneOnlySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: firstError(parsed.error) });
+    return;
+  }
+  const phoneDigits = parsed.data.phone.replace(/\D/g, '');
+  const verdict = checkLoginRate(`otp-req:${phoneDigits}`);
+  const verdictIp = checkLoginRate(`otp-req-ip:${req.ip ?? 'inconnu'}`);
+  if (!verdict.ok || !verdictIp.ok) {
+    res.status(429).json({ error: 'Trop de demandes. Réessayez plus tard.' });
+    return;
+  }
+  recordLoginFailure(`otp-req:${phoneDigits}`);
+  recordLoginFailure(`otp-req-ip:${req.ip ?? 'inconnu'}`);
+  const { code } = createOtp(phoneDigits);
+  // Le code est reinjecte dans le message WhatsApp du client a lui-meme :
+  // c'est ainsi qu'il « recoit » son code sans SMS.
+  const waDigits = phoneDigits.startsWith('229') ? phoneDigits : `229${phoneDigits}`;
+  const text = encodeURIComponent(`Mon code de connexion Le Printemps : ${code}`);
+  res.json({ whatsappUrl: `https://wa.me/${waDigits}?text=${text}` });
+});
+
+api.post('/auth/client/verify-code', async (req, res) => {
+  const parsed = verifyCodeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: firstError(parsed.error) });
+    return;
+  }
+  const digits = parsed.data.phone.replace(/\D/g, '');
+  const verdict = checkLoginRate(`otp-verify:${digits}`);
+  const verdictIp = checkLoginRate(`otp-verify-ip:${req.ip ?? 'inconnu'}`);
+  if (!verdict.ok || !verdictIp.ok) {
+    res.status(429).json({ error: 'Trop de tentatives. Réessayez plus tard.' });
+    return;
+  }
+  const result = verifyOtp(digits, parsed.data.code);
+  if ('error' in result) {
+    recordLoginFailure(`otp-verify:${digits}`);
+    recordLoginFailure(`otp-verify-ip:${req.ip ?? 'inconnu'}`);
+    res.status(400).json({ error: result.error });
+    return;
+  }
+  recordLoginSuccess(`otp-verify:${digits}`);
+  recordLoginSuccess(`otp-verify-ip:${req.ip ?? 'inconnu'}`);
+  setClientCookie(res, issueClientToken(result.client.id));
+  res.json({ ok: true });
+});
+
+api.post('/auth/client/logout', (_req, res) => {
+  setClientCookie(res, null);
+  res.json({ ok: true });
+});
+
+/** Données de l'espace : tout est scopé par le clientId de la session. */
+api.get('/me', requireClient, async (req, res) => {
+  try {
+    const data = await getMeData(clientIdOf(req));
     if (!data) {
-      res.status(404).json({ error: "Cet espace n'existe pas ou a été réinitialisé." });
+      res.status(404).json({ error: 'Client introuvable.' });
       return;
     }
     res.json(data);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Impossible de charger cet espace.' });
+    res.status(500).json({ error: 'Chargement impossible.' });
   }
 });
 
-api.post('/space/:token/redeem', async (req, res) => {
-  const token = tokenParam(req);
+api.post('/me/redeem', requireClient, async (req, res) => {
   const parsed = redeemSchema.safeParse(req.body);
-  if (!token || !parsed.success) {
+  if (!parsed.success) {
     res.status(400).json({ error: 'Demande invalide.' });
     return;
   }
   try {
-    const result = await redeemReward(token, parsed.data.rewardId);
+    const result = await redeemReward(clientIdOf(req), parsed.data.rewardId);
     if ('error' in result) {
       res.status(400).json({ error: result.error });
       return;
@@ -271,58 +401,26 @@ api.post('/space/:token/redeem', async (req, res) => {
   }
 });
 
-api.post('/space/:token/phone-link', async (req, res) => {
-  const token = tokenParam(req);
-  const parsed = phoneLinkRequestSchema.safeParse(req.body);
-  if (!token || !parsed.success) {
-    res.status(400).json({ error: parsed.success ? 'Lien invalide.' : firstError(parsed.error) });
+api.post('/me/visits', requireClient, async (req, res) => {
+  const parsed = createVisitSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: firstError(parsed.error) });
     return;
   }
   try {
-    const result = await createPhoneLinkCode(token, parsed.data.phone);
-    if ('error' in result) {
-      res.status(400).json({ error: result.error });
+    const result = await createVisitForClient(clientIdOf(req), parsed.data.services);
+    if (!result) {
+      res.status(404).json({ error: 'Client introuvable.' });
       return;
     }
-    // Le code est envoye a l'institut par WhatsApp et saisi ici pour confirmer.
-    const text = encodeURIComponent(
-      `Liaison de mon compte Le Printemps. Mon code : ${result.code}`,
-    );
-    res.json({ code: result.code, whatsappUrl: `https://wa.me/${INSTITUTE.whatsapp}?text=${text}` });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Impossible de générer le code.' });
-  }
-});
-
-api.post('/space/:token/phone-link/confirm', async (req, res) => {
-  const token = tokenParam(req);
-  const parsed = phoneLinkConfirmSchema.safeParse(req.body);
-  if (!token || !parsed.success) {
-    res.status(400).json({ error: parsed.success ? 'Lien invalide.' : firstError(parsed.error) });
-    return;
-  }
-  // Meme logique que le pavé admin : 5 essais, puis blocage progressif.
-  const bucket = `phonelink:${token}`;
-  const verdict = checkLoginRate(bucket);
-  if (!verdict.ok) {
-    res.setHeader('Retry-After', String(verdict.retryAfter));
-    const minutes = Math.max(1, Math.round(verdict.retryAfter / 60));
-    res.status(429).json({ error: `Trop de tentatives. Réessayez dans ${minutes} minute${minutes > 1 ? 's' : ''}.` });
-    return;
-  }
-  try {
-    const result = await confirmPhoneLinkCode(token, parsed.data.code);
     if ('error' in result) {
-      recordLoginFailure(bucket);
-      res.status(400).json({ error: result.error });
+      res.status(409).json({ error: result.error });
       return;
     }
-    recordLoginSuccess(bucket);
-    res.json({ ok: true });
+    res.status(201).json(result);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Vérification impossible.' });
+    res.status(500).json({ error: 'Création impossible.' });
   }
 });
 

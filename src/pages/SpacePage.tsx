@@ -1,54 +1,59 @@
-import { Flower2, Gift, History, LogIn, MessageCircle, ShieldCheck } from 'lucide-react';
+import { Flower2, Gift, History, LogOut, Plus, Check } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 import { INSTITUTE } from '../config/institute';
-import { serviceLabel } from '../config/services';
-import { getSpace, redeemFromSpace, requestPhoneLink, confirmPhoneLink, ApiError } from '../lib/api';
+import { SERVICE_CATEGORIES, serviceLabel, servicesByCategory } from '../config/services';
+import {
+  ApiError,
+  clientLogout,
+  createMyVisit,
+  getMe,
+  redeemFromSpace,
+} from '../lib/api';
 import { XP_LABEL, formatFcfa, nextTier, tierFor, tierProgress } from '../lib/loyalty';
 import { REDEMPTION_STATUS_LABEL, type SpaceData } from '../lib/types';
 import { formatDateTime } from '../lib/utils';
 import { Logo } from '../components/Logo';
 import { Button } from '../components/ui/Button';
-import { Field, TextInput } from '../components/ui/Field';
 
-/**
- * Espace personnel public, accessible uniquement via le space_token.
- * Ne révèle que les informations prévues par le cahier des charges :
- * profil, histoires de visites terminées, solde de Fleurs, catalogue,
- * échanges et liaison du numéro.
- */
+/** Espace personnel du client connecté (session cookie). */
 export function SpacePage() {
-  const { token } = useParams<{ token: string }>();
+  const navigate = useNavigate();
   const [data, setData] = useState<SpaceData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!token) return;
     try {
-      setData(await getSpace(token));
+      setData(await getMe());
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Lien invalide.');
-      setData(null);
+      if (err instanceof ApiError && err.status === 401) {
+        navigate('/accueil-client', { replace: true });
+        return;
+      }
+      setError(err instanceof Error ? err.message : 'Chargement impossible.');
     }
-  }, [token]);
+  }, [navigate]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  if (!token || error) {
+  const logout = async () => {
+    try {
+      await clientLogout();
+    } finally {
+      navigate('/accueil-client', { replace: true });
+    }
+  };
+
+  if (error) {
     return (
       <div className="bg-cream flex min-h-dvh flex-col items-center justify-center gap-4 px-5 text-center">
         <Logo size={64} />
-        <h1 className="text-ink font-serif text-2xl">Lien introuvable</h1>
-        <p className="text-muted max-w-sm text-sm">
-          {error ?? "Ce lien d'espace personnel n'est pas valide. Demandez un nouveau lien à l'accueil du Printemps."}
-        </p>
-        <Link to="/borne" className="text-primary-ink font-semibold underline underline-offset-4 decoration-primary-glow">
-          Retour à l'accueil
-        </Link>
+        <p className="text-muted text-sm">{error}</p>
+        <Button onClick={() => void load()}>Réessayer</Button>
       </div>
     );
   }
@@ -74,9 +79,16 @@ export function SpacePage() {
           <h1 className="text-ink font-serif text-3xl">
             {data.client.firstName} {data.client.lastName}
           </h1>
+          <button
+            type="button"
+            onClick={() => void logout()}
+            className="text-muted hover:text-primary-ink inline-flex items-center gap-1.5 text-xs font-medium underline decoration-primary-glow underline-offset-4"
+          >
+            <LogOut className="size-3.5" aria-hidden="true" />
+            Se déconnecter
+          </button>
         </header>
 
-        {/* --- Fidélité ------------------------------------------------ */}
         <section className="border-primary-light bg-surface flex flex-col gap-4 rounded-card border p-6 shadow-card">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -107,18 +119,25 @@ export function SpacePage() {
                 : `${data.client.totalXp.toLocaleString('fr-FR')} ${XP_LABEL} — palier maximum atteint`}
             </p>
           </div>
-
-          <p className="text-muted text-xs">
-            {data.client.totalXp.toLocaleString('fr-FR')} {XP_LABEL} au total · {data.flowersTotal}{' '}
-            Fleur{data.flowersTotal > 1 ? 's' : ''} gagnée{data.flowersTotal > 1 ? 's' : ''} au
-            total.
-          </p>
         </section>
 
-        {/* --- Lier mon numéro ------------------------------------------ */}
-        {!data.client.phoneLinked && token && <PhoneLinkCard token={token} onLinked={load} />}
+        {/* --- Nouvelle visite / visite en attente ----------------------- */}
+        {data.pendingVisit ? (
+          <section className="border-card-border bg-card flex flex-col gap-1.5 rounded-card border p-4">
+            <p className="text-ink font-serif text-lg">Votre visite est enregistrée</p>
+            <p className="text-muted text-xs">{formatDateTime(data.pendingVisit.createdAt)}</p>
+            <p className="text-ink text-sm font-medium">
+              {data.pendingVisit.services.map(serviceLabel).join(' · ')}
+            </p>
+            <p className="text-muted text-xs">
+              Montant prévu : {formatFcfa(data.pendingVisit.amountFcfa)}. Présentez-vous au
+              comptoir : l'équipe la validera à la fin de votre passage.
+            </p>
+          </section>
+        ) : (
+          <NewVisit onCreated={load} />
+        )}
 
-        {/* --- Historique des visites ----------------------------------- */}
         <section className="flex flex-col gap-3">
           <h2 className="text-ink flex items-center gap-2 font-serif text-xl">
             <History className="text-primary-ink size-5" aria-hidden="true" />
@@ -126,8 +145,7 @@ export function SpacePage() {
           </h2>
           {data.visits.length === 0 ? (
             <p className="text-muted text-sm">
-              Aucune visite terminée pour le moment. Elles apparaîtront ici après votre
-              passage.
+              Aucune visite terminée pour le moment. Elles apparaîtront ici après votre passage.
             </p>
           ) : (
             <ul className="flex flex-col gap-3">
@@ -152,7 +170,6 @@ export function SpacePage() {
           )}
         </section>
 
-        {/* --- Récompenses ---------------------------------------------- */}
         <section className="flex flex-col gap-3">
           <h2 className="text-ink flex items-center gap-2 font-serif text-xl">
             <Gift className="text-primary-ink size-5" aria-hidden="true" />
@@ -170,7 +187,6 @@ export function SpacePage() {
                   description={reward.description}
                   costFlowers={reward.costFlowers}
                   canAfford={reward.costFlowers <= data.flowersAvailable}
-                  token={token!}
                   onRedeemed={load}
                 />
               ))}
@@ -178,7 +194,6 @@ export function SpacePage() {
           )}
         </section>
 
-        {/* --- Mes échanges ---------------------------------------------- */}
         <section className="flex flex-col gap-3">
           <h2 className="text-ink font-serif text-xl">Mes échanges</h2>
           {data.redemptions.length === 0 ? (
@@ -208,6 +223,97 @@ export function SpacePage() {
   );
 }
 
+/** Formulaire « Nouvelle visite » : le client coche ses prestations. */
+function NewVisit({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const toggle = (id: string) =>
+    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const submit = async () => {
+    if (selected.length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await createMyVisit(selected);
+      setOpen(false);
+      setSelected([]);
+      await onCreated();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Création impossible.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <Button
+        variant="secondary"
+        onClick={() => setOpen(true)}
+        icon={<Plus className="size-4" aria-hidden="true" />}
+      >
+        Nouvelle visite
+      </Button>
+    );
+  }
+
+  return (
+    <section className="border-primary-light bg-surface flex flex-col gap-4 rounded-card border p-6 shadow-card">
+      <h2 className="text-ink font-serif text-xl">Quelles prestations aujourd'hui ?</h2>
+      {SERVICE_CATEGORIES.map((category) => (
+        <fieldset key={category.id}>
+          <legend className="text-ink mb-2 font-serif text-base font-semibold">
+            {category.label}
+          </legend>
+          <div className="flex flex-wrap gap-2">
+            {servicesByCategory(category.id).map((service) => {
+              const active = selected.includes(service.id);
+              return (
+                <button
+                  key={service.id}
+                  type="button"
+                  role="checkbox"
+                  aria-checked={active}
+                  onClick={() => toggle(service.id)}
+                  className={`inline-flex cursor-pointer items-center gap-1.5 rounded-pill border px-4 py-2 font-sans text-xs font-medium transition-all ${
+                    active
+                      ? 'border-primary-strong bg-primary-strong text-white shadow-brand'
+                      : 'border-card-border bg-surface text-muted hover:border-primary hover:text-primary-ink hover:bg-primary-light'
+                  }`}
+                >
+                  {active && <Check className="size-3.5" aria-hidden="true" />}
+                  {service.label}
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
+      ))}
+      {error && (
+        <p role="alert" className="text-danger text-xs font-medium">
+          {error}
+        </p>
+      )}
+      <div className="flex gap-2.5">
+        <Button onClick={submit} loading={busy} disabled={selected.length === 0}>
+          Valider ma visite
+        </Button>
+        <Button variant="ghost" onClick={() => setOpen(false)}>
+          Annuler
+        </Button>
+      </div>
+      <p className="text-muted text-xs">
+        L'équipe confirmera votre visite à la fin du passage ; le montant peut être ajusté sur
+        place.
+      </p>
+    </section>
+  );
+}
+
 function RedemptionBadge({ status }: { status: SpaceData['redemptions'][number]['status'] }) {
   const style =
     status === 'used'
@@ -228,7 +334,6 @@ function RewardRow({
   description,
   costFlowers,
   canAfford,
-  token,
   onRedeemed,
 }: {
   rewardId: string;
@@ -236,7 +341,6 @@ function RewardRow({
   description: string;
   costFlowers: number;
   canAfford: boolean;
-  token: string;
   onRedeemed: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -246,10 +350,10 @@ function RewardRow({
     setBusy(true);
     setError(null);
     try {
-      await redeemFromSpace(token, rewardId);
+      await redeemFromSpace(rewardId);
       await onRedeemed();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Échange impossible.");
+      setError(err instanceof ApiError ? err.message : 'Échange impossible.');
     } finally {
       setBusy(false);
     }
@@ -266,130 +370,22 @@ function RewardRow({
           {costFlowers} <Flower2 className="size-3.5" aria-hidden="true" />
         </span>
       </div>
-      {error && <p role="alert" className="text-danger text-xs font-medium">{error}</p>}
+      {error && (
+        <p role="alert" className="text-danger text-xs font-medium">
+          {error}
+        </p>
+      )}
       <div className="mt-1 self-start">
-        <Button size="sm" variant={canAfford ? 'primary' : 'secondary'} disabled={!canAfford || busy} loading={busy} onClick={redeem}>
+        <Button
+          size="sm"
+          variant={canAfford ? 'primary' : 'secondary'}
+          disabled={!canAfford || busy}
+          loading={busy}
+          onClick={redeem}
+        >
           {canAfford ? 'Échanger' : 'Solde insuffisant'}
         </Button>
       </div>
     </li>
-  );
-}
-
-/** Carte « Lier mon numéro » : code envoyé via WhatsApp puis confirmé ici. */
-function PhoneLinkCard({ token, onLinked }: { token: string; onLinked: () => void }) {
-  const [phone, setPhone] = useState('');
-  const [whatsappUrl, setWhatsappUrl] = useState<string | null>(null);
-  const [code, setCode] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [linked, setLinked] = useState(false);
-
-  const start = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await requestPhoneLink(token, phone);
-      setWhatsappUrl(result.whatsappUrl);
-      setCode(result.code);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Demande impossible.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const confirm = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await confirmPhoneLink(token, code);
-      setLinked(true);
-      await onLinked();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Code invalide.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (linked) {
-    return (
-      <section className="border-success-soft bg-success-soft text-success flex items-center gap-2 rounded-card border p-4 text-sm font-medium">
-        <ShieldCheck className="size-5" aria-hidden="true" />
-        Numéro lié avec succès.
-      </section>
-    );
-  }
-
-  return (
-    <section className="border-primary-light bg-surface flex flex-col gap-4 rounded-card border p-6 shadow-card">
-      <div className="flex items-center gap-2">
-        <LogIn className="text-primary-ink size-5" aria-hidden="true" />
-        <h2 className="text-ink font-serif text-xl">Lier mon numéro</h2>
-      </div>
-      <p className="text-muted text-sm">
-        Reliez votre numéro pour retrouver ce compte depuis votre prochain passage.
-      </p>
-
-      {!whatsappUrl ? (
-        <>
-          <Field label="Votre numéro">
-            {(p) => (
-              <TextInput
-                {...p}
-                type="tel"
-                inputMode="tel"
-                value={phone}
-                placeholder="01 23 45 67 89"
-                invalid={Boolean(error)}
-                onChange={(e) => setPhone(e.target.value)}
-              />
-            )}
-          </Field>
-          {error && (
-            <p role="alert" className="text-danger text-xs font-medium">{error}</p>
-          )}
-          <Button onClick={start} loading={busy} disabled={phone.trim().length < 6}>
-            Envoyer le code
-          </Button>
-        </>
-      ) : (
-        <>
-          <p className="text-muted text-sm">
-            1. Envoyez le message proposé à l’institut sur WhatsApp, puis reportez le code
-            ici :
-          </p>
-          <a
-            href={whatsappUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="text-whatsapp-hover inline-flex items-center gap-2 font-sans text-sm font-semibold"
-          >
-            <MessageCircle className="size-4" aria-hidden="true" />
-            Ouvrir WhatsApp
-          </a>
-          <Field label="Code reçu">
-            {(p) => (
-              <TextInput
-                {...p}
-                inputMode="numeric"
-                value={code}
-                maxLength={6}
-                placeholder="123456"
-                invalid={Boolean(error)}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-              />
-            )}
-          </Field>
-          {error && (
-            <p role="alert" className="text-danger text-xs font-medium">{error}</p>
-          )}
-          <Button onClick={confirm} loading={busy} disabled={code.length !== 6}>
-            Confirmer le code
-          </Button>
-        </>
-      )}
-    </section>
   );
 }

@@ -1,4 +1,5 @@
-import { Download, Inbox, Phone, RefreshCw, Search } from 'lucide-react';
+import { Download, Inbox, Phone, Plus, RefreshCw, Search } from 'lucide-react';
+import { ClientRegisterModal } from '../components/ClientRegisterModal';
 import { listPublicServices } from '../lib/api';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -46,6 +47,7 @@ type TabId = (typeof TABS)[number]['id'];
 export function AdminPage() {
   const [authed, setAuthed] = useState(Boolean(tokenStorage().get()));
   const [tab, setTab] = useState<TabId>('registre');
+  const [manualOpen, setManualOpen] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
   const [rows, setRows] = useState<Registration[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -170,6 +172,12 @@ export function AdminPage() {
         {tab === 'recompenses' && <RewardsAdmin />}
         {tab === 'echanges' && <RedemptionsAdmin />}
 
+        <ClientRegisterModal
+          open={manualOpen}
+          onClose={() => setManualOpen(false)}
+          onCreated={() => void load(day)}
+        />
+
         {tab === 'registre' && (<>
 
         {/* --- Commandes ---------------------------------------------------- */}
@@ -205,6 +213,9 @@ export function AdminPage() {
                 onChange={(event) => setDay(event.target.value)}
                 className="border-card-border bg-surface text-ink rounded-pill border px-4 py-2.5 font-sans text-sm"
               />
+              <Button variant="secondary" size="sm" onClick={() => setManualOpen(true)} icon={<Plus className="size-4" />}>
+                Nouvelle visite
+              </Button>
               <Button variant="secondary" size="sm" icon={<RefreshCw className="size-4" />} onClick={() => void load(day)}>
                 Actualiser
               </Button>

@@ -67,8 +67,8 @@ async function readErrorMessage(response: Response): Promise<string> {
 
 export function createRegistration(
   input: CreateRegistrationInput,
-): Promise<Registration & { spaceToken: string }> {
-  return request<Registration & { spaceToken: string }>('/registrations', {
+): Promise<Registration> {
+  return request<Registration>('/registrations', {
     method: 'POST',
     body: JSON.stringify(input),
   });
@@ -173,38 +173,6 @@ export function setRedemptionStatus(id: string, status: RedemptionStatus): Promi
   );
 }
 
-/* ----------------------------------------------------------------------- */
-/* Espace client public                                                    */
-/* ----------------------------------------------------------------------- */
-
-export function getSpace(token: string): Promise<SpaceData> {
-  return request<SpaceData>(`/space/${encodeURIComponent(token)}`);
-}
-
-export function redeemFromSpace(token: string, rewardId: string): Promise<SpaceData> {
-  return request<SpaceData>(`/space/${encodeURIComponent(token)}/redeem`, {
-    method: 'POST',
-    body: JSON.stringify({ rewardId }),
-  });
-}
-
-export function requestPhoneLink(
-  token: string,
-  phone: string,
-): Promise<{ code: string; whatsappUrl: string }> {
-  return request<{ code: string; whatsappUrl: string }>(
-    `/space/${encodeURIComponent(token)}/phone-link`,
-    { method: 'POST', body: JSON.stringify({ phone }) },
-  );
-}
-
-export function confirmPhoneLink(token: string, code: string): Promise<{ ok: true }> {
-  return request<{ ok: true }>(`/space/${encodeURIComponent(token)}/phone-link/confirm`, {
-    method: 'POST',
-    body: JSON.stringify({ code }),
-  });
-}
-
 export function listRegistrations(params: { day?: string } = {}): Promise<Registration[]> {
   const query = params.day ? `?day=${encodeURIComponent(params.day)}` : '';
   return request<Registration[]>(`/registrations${query}`, {}, true);
@@ -264,4 +232,55 @@ export function exportUrl(day?: string): string {
   if (day) params.set('day', day);
   const query = params.toString();
   return `${BASE}/registrations.csv${query ? `?${query}` : ''}`;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Session client + espace personnel                                       */
+/* ----------------------------------------------------------------------- */
+
+export function clientFirstVisit(input: {
+  firstName: string;
+  lastName: string;
+  phone: string;
+}): Promise<{ ok: true }> {
+  return request<{ ok: true }>('/auth/client/first-visit', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function requestClientCode(phone: string): Promise<{ whatsappUrl: string }> {
+  return request<{ whatsappUrl: string }>('/auth/client/request-code', {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  });
+}
+
+export function verifyClientCode(phone: string, code: string): Promise<{ ok: true }> {
+  return request<{ ok: true }>('/auth/client/verify-code', {
+    method: 'POST',
+    body: JSON.stringify({ phone, code }),
+  });
+}
+
+export function clientLogout(): Promise<{ ok: true }> {
+  return request<{ ok: true }>('/auth/client/logout', { method: 'POST' });
+}
+
+export function getMe(): Promise<SpaceData> {
+  return request<SpaceData>('/me');
+}
+
+export function redeemFromSpace(rewardId: string): Promise<SpaceData> {
+  return request<SpaceData>('/me/redeem', {
+    method: 'POST',
+    body: JSON.stringify({ rewardId }),
+  });
+}
+
+export function createMyVisit(services: string[]): Promise<Registration> {
+  return request<Registration>('/me/visits', {
+    method: 'POST',
+    body: JSON.stringify({ services }),
+  });
 }

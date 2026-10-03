@@ -24,7 +24,7 @@ export function EmployeePage() {
 
   // URL absolue du formulaire client, resolue sur l'hote courant.
   // Derivee pendant le rendu : pas d'effet, pas de clignotement du QR.
-  const clientUrl = new URL('/client', window.location.origin).toString();
+  const clientUrl = new URL('/accueil-client', window.location.origin).toString();
 
   const loadStats = useCallback(async () => {
     try {

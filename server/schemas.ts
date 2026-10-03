@@ -90,7 +90,7 @@ export const redeemSchema = z.object({
   rewardId: z.string().min(1).max(64),
 });
 
-export const phoneLinkRequestSchema = z.object({
+export const phoneOnlySchema = z.object({
   phone: z
     .string()
     .min(6, 'Numéro de téléphone trop court.')
@@ -99,8 +99,37 @@ export const phoneLinkRequestSchema = z.object({
     .refine((v) => PHONE_PATTERN.test(v), 'Numéro de téléphone invalide.'),
 });
 
-export const phoneLinkConfirmSchema = z.object({
+export const firstVisitSchema = z.object({
+  firstName: z.string().min(1, 'Le prénom est requis.').max(60).transform(clean),
+  lastName: z.string().min(1, 'Le nom est requis.').max(60).transform(clean),
+  phone: z
+    .string()
+    .min(6, 'Numéro de téléphone trop court.')
+    .max(25)
+    .transform(clean)
+    .refine((v) => PHONE_PATTERN.test(v), 'Numéro de téléphone invalide.'),
+});
+
+export const verifyCodeSchema = z.object({
+  phone: z
+    .string()
+    .min(6, 'Numéro de téléphone trop court.')
+    .max(25)
+    .transform(clean)
+    .refine((v) => PHONE_PATTERN.test(v), 'Numéro de téléphone invalide.'),
   code: z.string().trim().regex(/^\d{6}$/, 'Le code fait 6 chiffres.'),
+});
+
+export const createVisitSchema = z.object({
+  services: z
+    .array(z.string())
+    .min(1, 'Choisissez au moins une prestation.')
+    .max(20, 'Trop de prestations sélectionnées.')
+    .transform((list) => [...new Set(list)])
+    .refine(
+      (list) => list.every((id) => VALID_SERVICE_IDS.has(id) && id !== 'autre'),
+      'Prestation inconnue.',
+    ),
 });
 
 export const servicePriceSchema = z.object({

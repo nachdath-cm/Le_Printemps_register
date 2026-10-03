@@ -55,12 +55,10 @@ export interface Client {
   createdAt: string;
   firstName: string;
   lastName: string;
-  /** Numéro confirmé via le code WhatsApp — null tant que non lié. */
-  phone: string | null;
-  /** Chiffres du téléphone saisi au registre, sans le lier : lien interne. */
+  /** Numéro (chiffres normalisés) : identifiant de connexion du client. */
+  phone: string;
+  /** Chiffres du téléphone saisis historiquement — rapprochement interne. */
   claimedPhone: string;
-  /** Identifiant d'espace public, 32 octets aléatoires en base64url. */
-  spaceToken: string;
   totalXp: number;
 }
 
@@ -97,6 +95,14 @@ export interface ServicePrice {
   priceFcfa: number;
 }
 
+/** Visite en attente (affichée seule si elle existe). */
+export interface PendingVisit {
+  id: string;
+  createdAt: string;
+  services: string[];
+  amountFcfa: number;
+}
+
 /** Visite telle qu'affichée dans l'espace client (Terminé uniquement). */
 export interface SpaceVisit {
   id: string;
@@ -120,10 +126,10 @@ export interface SpaceData {
     firstName: string;
     lastName: string;
     totalXp: number;
-    phoneLinked: boolean;
   };
   flowersTotal: number;
   flowersAvailable: number;
+  pendingVisit: PendingVisit | null;
   visits: SpaceVisit[];
   rewards: Reward[];
   redemptions: SpaceRedemption[];

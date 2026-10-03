@@ -1,6 +1,5 @@
 import { ArrowRight } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObject } from 'react';
-import { useNavigate } from 'react-router-dom';
 
 import { INSTITUTE } from '../config/institute';
 import { ApiError, createRegistration } from '../lib/api';
@@ -26,6 +25,8 @@ export interface ClientRegisterModalProps {
   /** La modale est pilotee par le parent : ouverte a l'arrivee sur /client. */
   open: boolean;
   onClose: () => void;
+  /** Appele quand une inscription a bien ete creee. */
+  onCreated?: () => void;
 }
 
 /**
@@ -35,13 +36,12 @@ export interface ClientRegisterModalProps {
  * La modale reste ouverte sur l'ecran de remerciement, puis se ferme
  * d'elle-meme au bout de quelques secondes.
  */
-export function ClientRegisterModal({ open, onClose }: ClientRegisterModalProps) {
+export function ClientRegisterModal({ open, onClose, onCreated }: ClientRegisterModalProps) {
   const [values, setValues] = useState<RegistrationFormValues>(EMPTY_FORM);
   const [errors, setErrors] = useState<RegistrationErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
-  const navigate = useNavigate();
   const [focusField, setFocusField] = useState<string | null>(null);
   const successRef = useRef<HTMLDivElement>(null);
 
@@ -96,12 +96,9 @@ export function ClientRegisterModal({ open, onClose }: ClientRegisterModalProps)
 
     setSubmitting(true);
     try {
-      const created = await createRegistration(toPayload(values));
+      await createRegistration(toPayload(values));
       setDone(true);
-      // Acces direct a l'espace personnel, sans QR intermediaire.
-      if (created.spaceToken) {
-        navigate(`/espace/${created.spaceToken}`);
-      }
+      onCreated?.();
     } catch (err) {
       setFormError(
         err instanceof ApiError

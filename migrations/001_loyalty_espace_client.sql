@@ -7,10 +7,9 @@
 
 create table if not exists clients (
   id           uuid primary key default gen_random_uuid(),
-  phone        text unique,                    -- lié via code, null avant liaison
+  phone        text not null unique,           -- indentifiant de connexion
   first_name   text not null,
   last_name    text not null,
-  space_token  text not null unique,           -- 32 octets aléatoires, base64url
   total_xp     integer not null default 0,
   created_at   timestamptz not null default now()
 );
@@ -19,6 +18,10 @@ create table if not exists clients (
 -- un espace existant à la visite suivante (non exposé côté public).
 alter table clients add column if not exists claimed_phone text;
 create index if not exists clients_claimed_phone_idx on clients (claimed_phone);
+
+-- Refonte session : l'accès client repose sur une session signée (cookie),
+-- plus sur un token secret dans l'URL.
+alter table clients drop column if exists space_token;
 
 -- 2. Visites (table registrations) ------------------------------------------
 
