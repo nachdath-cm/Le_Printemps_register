@@ -159,6 +159,13 @@ function Login({ onDone, onBack }: { onDone: () => void; onBack: () => void }) {
       </Field>
       {error && <p role="alert" className="text-danger text-xs font-medium">{error}</p>}
       <Button type="submit" fullWidth loading={busy} disabled={code.length !== 6}>Se connecter</Button>
+      <button
+        type="button"
+        onClick={() => void sendCode({ preventDefault: () => {} } as FormEvent)}
+        className="text-primary-ink cursor-pointer text-xs font-medium underline decoration-primary-glow underline-offset-4"
+      >
+        Renvoyer un nouveau code
+      </button>
       <Button type="button" variant="ghost" onClick={onBack}>Retour</Button>
     </form>
   );

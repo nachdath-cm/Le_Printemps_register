@@ -567,7 +567,7 @@ const otpByPhone = new Map<string, OtpEntry>();
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_MAX_ATTEMPTS = 5;
 
-const NEUTRAL_ERROR = 'Code incorrect ou expiré.';
+const NEUTRAL_ERROR = 'Code incorrect ou expiré. Un nouveau code invalide l\'ancien — vérifiez le dernier message WhatsApp reçu.';
 
 /** Cree (ou remplace) un code a usage unique pour ce numero. */
 export function createOtp(phone: string): { code: string } {
@@ -587,7 +587,16 @@ export function createOtp(phone: string): { code: string } {
 export function verifyOtp(phone: string, code: string): { ok: true; client: Client } | { error: string } {
   const digits = normalizePhone(phone);
   const entry = otpByPhone.get(digits);
-  if (!entry || entry.consumed || entry.expiresAt < Date.now()) {
+  if (!entry) {
+    console.log(`[otp] aucun code pour ${digits.slice(-4)} (message manquant ou compteur absent)`);
+    return { error: NEUTRAL_ERROR };
+  }
+  if (entry.consumed) {
+    console.log(`[otp] code deja consomme pour …${digits.slice(-4)}`);
+    return { error: NEUTRAL_ERROR };
+  }
+  if (entry.expiresAt < Date.now()) {
+    console.log(`[otp] code expire pour …${digits.slice(-4)}`);
     return { error: NEUTRAL_ERROR };
   }
   entry.attempts += 1;
@@ -596,6 +605,7 @@ export function verifyOtp(phone: string, code: string): { ok: true; client: Clie
     return { error: NEUTRAL_ERROR };
   }
   if (entry.code !== code.trim()) {
+    console.log(`[otp] code saisi different du dernier emis pour …${digits.slice(-4)}`);
     return { error: NEUTRAL_ERROR };
   }
   entry.consumed = true;
