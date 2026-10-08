@@ -1323,10 +1323,11 @@ async function readLinks(): Promise<import('../src/lib/types.ts').ProspectLink[]
 export async function createProspectLink(label: string): Promise<import('../src/lib/types.ts').ProspectLink> {
   return enqueue(async () => {
     const links = await readLinks();
+    const trimmed = label.trim();
     const link = {
       id: randomUUID(),
       token: randomBytes(18).toString('base64url'),
-      label,
+      label: trimmed || `Lien ${links.length + 1}`,
       active: true,
       createdAt: new Date().toISOString(),
     };

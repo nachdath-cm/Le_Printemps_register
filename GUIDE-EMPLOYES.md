@@ -203,14 +203,18 @@ accueillie. Il arrive dans la liste via un lien que vous générez, et devient
 
 Dans l'onglet **Prospects**, section *Générer un lien* :
 
-1. Saisissez un libellé (« Affiche vitrine », « Instagram », un prénom…) ;
-2. Cliquez **Générer** : le lien, son QR code et les boutons s'affichent ;
-3. Envoyez le lien par WhatsApp (**Partager sur WhatsApp**), copiez-le, ou
+1. Cliquez **Générer un lien** : le lien, son QR code et les boutons
+   s'affichent ;
+2. Envoyez le lien par WhatsApp (**Partager sur WhatsApp**), copiez-le, ou
    téléchargez le **QR PNG** pour l'imprimer.
 
 Chaque lien compte combien de prospects il vous a apportés. Vous pouvez le
 désactiver à tout moment : le formulaire associé affiche alors un message
 d'erreur sobre.
+
+Le formulaire que la personne remplit ne demande que son **prénom, son
+nom et son téléphone** : elle est ensuite directement enregistrée comme
+prospect dans votre base.
 
 ### La liste des prospects
 

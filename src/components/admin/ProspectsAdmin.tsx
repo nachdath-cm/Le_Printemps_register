@@ -25,7 +25,6 @@ export function ProspectsAdmin() {
   const [links, setLinks] = useState<ProspectLinkRow[] | null>(null);
   const [prospects, setProspects] = useState<ProspectRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [label, setLabel] = useState('');
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<'prospect' | 'client' | 'tous'>('prospect');
   const [source, setSource] = useState('');
@@ -49,11 +48,9 @@ export function ProspectsAdmin() {
   }, [load]);
 
   async function generate() {
-    if (!label.trim()) return;
     setBusy(true);
     try {
-      await createProspectLink(label.trim());
-      setLabel('');
+      await createProspectLink('');
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Création impossible.');
@@ -118,15 +115,9 @@ export function ProspectsAdmin() {
 
       <section className="border-card-border bg-card flex flex-col gap-4 rounded-card border p-5">
         <h2 className="text-ink font-serif text-xl">Générer un lien</h2>
-        <div className="flex gap-2">
-          <TextInput
-            aria-label="Libellé du lien"
-            placeholder="Ex. Affiche vitrine, Instagram, prénom…"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-          />
-          <Button onClick={() => void generate()} loading={busy} disabled={!label.trim()}>
-            Générer
+        <div>
+          <Button onClick={() => void generate()} loading={busy}>
+            Générer un lien
           </Button>
         </div>
         <ul className="flex flex-col gap-3">

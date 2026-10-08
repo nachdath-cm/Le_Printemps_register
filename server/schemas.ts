@@ -142,7 +142,7 @@ export const servicePriceSchema = z.object({
 });
 
 export const prospectLinkSchema = z.object({
-  label: z.string().min(1, 'Le libellé est requis.').max(60).transform(clean),
+  label: z.string().max(60).transform(clean).optional().default(''),
 });
 
 export const prospectSubmitSchema = z.object({
@@ -155,7 +155,7 @@ export const prospectSubmitSchema = z.object({
     .transform(clean)
     .refine((v) => PHONE_PATTERN.test(v), 'Numéro de téléphone invalide.'),
   interestServiceId: z.string().max(64).nullish(),
-  consent: z.literal(true, { error: 'Le consentement est obligatoire.' }),
+  consent: z.boolean().optional().default(false),
   /** Honeypot : doit rester vide. */
   website: z.string().max(0).optional(),
 });

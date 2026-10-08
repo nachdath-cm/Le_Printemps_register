@@ -3,8 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { INSTITUTE } from '../config/institute';
-import { SERVICE_CATEGORIES, servicesByCategory } from '../config/services';
-import { ApiError, listPublicServices, submitProspectLink } from '../lib/api';
+import { ApiError, submitProspectLink } from '../lib/api';
 import { Logo } from '../components/Logo';
 import { Button } from '../components/ui/Button';
 import { Field, TextInput } from '../components/ui/Field';
@@ -53,27 +52,13 @@ function ProspectForm({ token }: { token: string }) {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
-  const [interestServiceId, setInterestServiceId] = useState('');
-  const [consent, setConsent] = useState(false);
   const [website, setWebsite] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
-  const [prices, setPrices] = useState<Set<string> | null>(null);
-
-  useEffect(() => {
-    // On ne propose que les prestations au catalogue.
-    listPublicServices()
-      .then((list) => setPrices(new Set(list.map((s) => s.id))))
-      .catch(() => setPrices(new Set()));
-  }, []);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!consent) {
-      setError('Vous devez accepter d’être recontactée(e) pour continuer.');
-      return;
-    }
     setBusy(true);
     setError(null);
     try {
@@ -81,8 +66,6 @@ function ProspectForm({ token }: { token: string }) {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         phone: phone.trim(),
-        interestServiceId: interestServiceId || null,
-        consent: true,
         website,
       });
       setDone(true);
@@ -145,43 +128,6 @@ function ProspectForm({ token }: { token: string }) {
             <TextInput {...p} type="tel" inputMode="tel" value={phone} required autoComplete="tel" placeholder="01 23 45 67 89" onChange={(e) => setPhone(e.target.value)} />
           )}
         </Field>
-
-        <Field label="Prestation qui vous intéresse (facultatif)">
-          {(p) => (
-            <select
-              {...p}
-              value={interestServiceId}
-              onChange={(e) => setInterestServiceId(e.target.value)}
-              className="border-card-border bg-surface text-ink w-full rounded-2xl border px-4 py-3.5 font-sans text-base focus:outline-none focus-visible:border-primary-ink focus-visible:ring-2 focus-visible:ring-primary-glow"
-            >
-              <option value="">—</option>
-              {SERVICE_CATEGORIES.map((category) => (
-                <optgroup key={category.id} label={category.label}>
-                  {servicesByCategory(category.id)
-                    .filter((s) => !prices || prices.has(s.id))
-                    .map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.label}
-                      </option>
-                    ))}
-                </optgroup>
-              ))}
-            </select>
-          )}
-        </Field>
-
-        <label className="flex items-start gap-2.5 text-sm">
-          <input
-            type="checkbox"
-            checked={consent}
-            onChange={(e) => setConsent(e.target.checked)}
-            className="mt-0.5 size-4 accent-[#bd5822]"
-          />
-          <span className="text-ink">
-            J’accepte d’être recontacté(e) par Le Printemps. Vos coordonnées ne servent qu’au suivi
-            par l’institut.
-          </span>
-        </label>
 
         {/* Honeypot : invisible pour les humains. */}
         <input

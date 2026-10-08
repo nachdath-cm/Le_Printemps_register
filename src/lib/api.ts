@@ -298,8 +298,8 @@ export function submitProspectLink(
     firstName: string;
     lastName: string;
     phone: string;
-    interestServiceId: string | null;
-    consent: true;
+    interestServiceId?: string | null;
+    consent?: boolean;
     website?: string;
   },
 ): Promise<{ ok: true }> {
