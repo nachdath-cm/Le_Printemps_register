@@ -140,6 +140,25 @@ export const servicePriceSchema = z.object({
     .max(100_000_000),
 });
 
+export const prospectLinkSchema = z.object({
+  label: z.string().min(1, 'Le libellé est requis.').max(60).transform(clean),
+});
+
+export const prospectSubmitSchema = z.object({
+  firstName: z.string().min(1, 'Le prénom est requis.').max(60).transform(clean),
+  lastName: z.string().min(1, 'Le nom est requis.').max(60).transform(clean),
+  phone: z
+    .string()
+    .min(6, 'Numéro de téléphone trop court.')
+    .max(25)
+    .transform(clean)
+    .refine((v) => PHONE_PATTERN.test(v), 'Numéro de téléphone invalide.'),
+  interestServiceId: z.string().max(64).nullish(),
+  consent: z.literal(true, { error: 'Le consentement est obligatoire.' }),
+  /** Honeypot : doit rester vide. */
+  website: z.string().max(0).optional(),
+});
+
 export function firstError(error: z.ZodError): string {
   return error.issues[0]?.message ?? 'Données invalides.';
 }

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -184,6 +184,12 @@ async function readClients(): Promise<Client[]> {
       phone,
       claimedPhone: claimed || normalizePhone(phone),
       totalXp: typeof row.totalXp === 'number' ? row.totalXp : 0,
+      status: row.status === 'prospect' ? ('prospect' as const) : ('client' as const),
+      source: typeof row.source === 'string' ? row.source : null,
+      interestServiceId:
+        typeof row.interestServiceId === 'string' ? row.interestServiceId : null,
+      consentContactAt: typeof row.consentContactAt === 'string' ? row.consentContactAt : null,
+      convertedAt: typeof row.convertedAt === 'string' ? row.convertedAt : null,
     };
   });
   return clientsCache;
@@ -244,6 +250,11 @@ export async function createRegistration(
         phone: digits,
         claimedPhone: digits,
         totalXp: 0,
+        status: 'client' as const,
+        source: null,
+        interestServiceId: null,
+        consentContactAt: null,
+        convertedAt: null,
       };
       clients.push(client);
     } else {
@@ -252,6 +263,11 @@ export async function createRegistration(
       client.lastName = input.lastName;
       if (!client.claimedPhone) client.claimedPhone = digits;
       if (!client.phone) client.phone = digits;
+      // Un prospect qui vient recevoir une prestation devient cliente.
+      if (client.status === 'prospect') {
+        client.status = 'client';
+        client.convertedAt = new Date().toISOString();
+      }
     }
 
     const now = new Date();
@@ -637,6 +653,11 @@ export async function createVisitForClient(
     const clients = await readClients();
     const client = clients.find((c) => c.id === clientId);
     if (!client) return null;
+    if (client.status === 'prospect') {
+      client.status = 'client';
+      client.convertedAt = new Date().toISOString();
+      await writeJson(CLIENTS_FILE, clients);
+    }
 
     const all = await readRegistrations();
     const pending = all.find((r) => r.clientId === client.id && r.status === 'en_attente');
@@ -679,6 +700,13 @@ export async function firstVisit(input: {
     if (digits.length < 8) return null;
     const existing = findClientByPhone(clients, digits);
     if (existing) {
+      // Un prospect qui s'inscrit devient cliente directement.
+      if (existing.status === 'prospect') {
+        existing.status = 'client';
+        existing.convertedAt = new Date().toISOString();
+        await writeJson(CLIENTS_FILE, clients);
+        return existing;
+      }
       // Un compte existe deja pour ce numero : il faut passer par le code.
       return { exists: true };
     }
@@ -691,10 +719,166 @@ export async function firstVisit(input: {
       phone: digits,
       claimedPhone: digits,
       totalXp: 0,
+      status: 'client' as const,
+      source: null,
+      interestServiceId: null,
+      consentContactAt: null,
+      convertedAt: null,
     };
     clients.push(client);
     await writeJson(CLIENTS_FILE, clients);
     return client;
+  });
+}
+
+/* ----------------------------------------------------------------------- */
+/* Prospects                                                               */
+/* ----------------------------------------------------------------------- */
+
+const LINKS_FILE = join(DATA_DIR, 'prospect-links.json');
+let linksCache: import('../src/lib/types.ts').ProspectLink[] | null = null;
+
+async function readLinks(): Promise<import('../src/lib/types.ts').ProspectLink[]> {
+  if (linksCache) return linksCache;
+  const parsed = await readJson<unknown>(LINKS_FILE, []);
+  linksCache = Array.isArray(parsed) ? (parsed as import('../src/lib/types.ts').ProspectLink[]) : [];
+  return linksCache;
+}
+
+export async function createProspectLink(label: string): Promise<import('../src/lib/types.ts').ProspectLink> {
+  return enqueue(async () => {
+    const links = await readLinks();
+    const link = {
+      id: randomUUID(),
+      token: randomBytes(18).toString('base64url'),
+      label,
+      active: true,
+      createdAt: new Date().toISOString(),
+    };
+    links.push(link);
+    await writeJson(LINKS_FILE, links);
+    return link;
+  });
+}
+
+export async function listProspectLinks(): Promise<import('../src/lib/types.ts').ProspectLinkRow[]> {
+  const links = await readLinks();
+  const clients = await readClients();
+  return links
+    .map((link) => ({
+      ...link,
+      prospectCount: clients.filter((c) => c.status !== undefined && c.source === link.label).length,
+      convertedCount: clients.filter((c) => c.source === link.label && c.convertedAt).length,
+    }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function setProspectLinkActive(id: string, active: boolean): Promise<import('../src/lib/types.ts').ProspectLink | null> {
+  return enqueue(async () => {
+    const links = await readLinks();
+    const found = links.find((l) => l.id === id);
+    if (!found) return null;
+    found.active = active;
+    await writeJson(LINKS_FILE, links);
+    return found;
+  });
+}
+
+export async function findLinkByToken(token: string): Promise<import('../src/lib/types.ts').ProspectLink | null> {
+  const links = await readLinks();
+  return links.find((l) => l.token === token) ?? null;
+}
+
+/**
+ * Soumission du formulaire public. Retourne toujours succès visible :
+ * jamais de révélation sur l'existence d'un numéro.
+ */
+export async function submitProspect(input: {
+  linkLabel: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  interestServiceId: string | null;
+}): Promise<{ ok: true }> {
+  return enqueue(async () => {
+    const clients = await readClients();
+    const digits = normalizePhone(input.phone);
+    const existing = findClientByPhone(clients, digits);
+    if (existing) {
+      // Ne pas signaler que le numéro existe ; rafraîchir l'intérêt si prospect.
+      if (existing.status === 'prospect' && input.interestServiceId) {
+        existing.interestServiceId = input.interestServiceId;
+        existing.firstName = input.firstName || existing.firstName;
+        existing.lastName = input.lastName || existing.lastName;
+        await writeJson(CLIENTS_FILE, clients);
+      }
+      return { ok: true };
+    }
+    clients.push({
+      v: 1,
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+      firstName: input.firstName,
+      lastName: input.lastName,
+      phone: digits,
+      claimedPhone: digits,
+      totalXp: 0,
+      status: 'prospect',
+      source: input.linkLabel,
+      interestServiceId: input.interestServiceId,
+      consentContactAt: new Date().toISOString(),
+      convertedAt: null,
+    });
+    await writeJson(CLIENTS_FILE, clients);
+    return { ok: true };
+  });
+}
+
+export async function listProspects(): Promise<import('../src/lib/types.ts').ProspectRow[]> {
+  const clients = await readClients();
+  return clients
+    .filter((c) => c.status === 'prospect' || c.source !== null)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .map((c) => ({
+      id: c.id,
+      firstName: c.firstName,
+      lastName: c.lastName,
+      phone: c.phone,
+      interestServiceId: c.interestServiceId,
+      source: c.source,
+      createdAt: c.createdAt,
+      status: c.status,
+      convertedAt: c.convertedAt,
+    }));
+}
+
+export async function convertProspect(id: string): Promise<Client | null> {
+  return enqueue(async () => {
+    const clients = await readClients();
+    const found = clients.find((c) => c.id === id);
+    if (!found) return null;
+    if (found.status === 'prospect') {
+      found.status = 'client';
+      found.convertedAt = new Date().toISOString();
+      await writeJson(CLIENTS_FILE, clients);
+    }
+    return found;
+  });
+}
+
+/** Suppression réservée aux prospects sans la moindre visite. */
+export async function deleteProspect(id: string): Promise<{ ok: true } | { error: string }> {
+  return enqueue(async () => {
+    const clients = await readClients();
+    const found = clients.find((c) => c.id === id);
+    if (!found || found.status !== 'prospect') return { error: 'Prospect introuvable.' };
+    const all = await readRegistrations();
+    if (all.some((r) => r.clientId === id)) {
+      return { error: 'Ce prospect a déjà une visite : suppression impossible.' };
+    }
+    await writeJson(CLIENTS_FILE, clients.filter((c) => c.id !== id));
+    clientsCache = clients.filter((c) => c.id !== id);
+    return { ok: true };
   });
 }
 
@@ -721,6 +905,11 @@ async function migrateLegacy(): Promise<void> {
         phone: digits,
         claimedPhone: digits,
         totalXp: 0,
+        status: 'client' as const,
+        source: null,
+        interestServiceId: null,
+        consentContactAt: null,
+        convertedAt: null,
       };
       clients.push(client);
     }

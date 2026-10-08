@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AdminPage } from './pages/AdminPage';
 import { AccueilClientPage } from './pages/AccueilClientPage';
 import { EmployeePage } from './pages/EmployeePage';
+import { PublicProspectPage } from './pages/PublicProspectPage';
 import { SpacePage } from './pages/SpacePage';
 
 export function App() {
@@ -16,6 +17,7 @@ export function App() {
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/espace" element={<SpacePage />} />
         <Route path="/espace/:token" element={<Navigate to="/accueil-client" replace />} />
+        <Route path="/p/:token" element={<PublicProspectPage />} />
         <Route path="*" element={<Navigate to="/borne" replace />} />
       </Routes>
     </BrowserRouter>

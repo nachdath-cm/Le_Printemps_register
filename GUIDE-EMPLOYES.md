@@ -71,7 +71,7 @@ La session reste ouverte **12 heures**. Pour quitter, bouton **Sortir**.
 
 ## 4. Les onglets du registre
 
-En haut de la page admin, quatre onglets :
+En haut de la page admin, cinq onglets :
 
 | Onglet | Contenu |
 | --- | --- |
@@ -79,6 +79,7 @@ En haut de la page admin, quatre onglets :
 | **Prestations** | le catalogue et les **prix** de chaque prestation |
 | **Récompenses** | créer / modifier / activer / supprimer les récompenses |
 | **Échanges** | les échanges de Fleurs demandés par les clientes |
+| **Prospects** | les liens à envoyer et les personnes intéressées |
 
 ### Registre — lire la liste
 
@@ -191,7 +192,47 @@ Printemps** échangeable contre une récompense. Les paliers affichés :
 
 ---
 
-## 8. En cas de problème
+## 8. Les prospects
+
+Un **prospect**, c'est une personne intéressée que vous n'avez pas encore
+accueillie. Il arrive dans la liste via un lien que vous générez, et devient
+**cliente** dès qu'elle reçoit une prestation ou si vous la convertissez.
+
+### Générer un lien
+
+Dans l'onglet **Prospects**, section *Générer un lien* :
+
+1. Saisissez un libellé (« Affiche vitrine », « Instagram », un prénom…) ;
+2. Cliquez **Générer** : le lien, son QR code et les boutons s'affichent ;
+3. Envoyez le lien par WhatsApp (**Partager sur WhatsApp**), copiez-le, ou
+   téléchargez le **QR PNG** pour l'imprimer.
+
+Chaque lien compte combien de prospects il vous a apportés. Vous pouvez le
+désactiver à tout moment : le formulaire associé affiche alors un message
+d'erreur sobre.
+
+### La liste des prospects
+
+Chaque ligne indique le nom, le téléphone (cliquable pour appeler), la
+prestation d'intérêt, la source (le lien utilisé) et la date.
+
+- **Relancer sur WhatsApp** : prépare un message poli au nom du salon ;
+- **Passer en cliente** : convertit la personne (utile quand elle arrive
+  sans avoir utilisé son espace) ;
+- **Supprimer** : possible seulement tant qu'elle n'a aucune visite ;
+- filtres : *Prospects / Converties / Tous*, par source, par période, et
+  recherche par nom ou téléphone.
+
+La petite synthèse en bas de page donne, par source, le nombre de prospects,
+le nombre de converties et le taux de conversion.
+
+> Un prospect converti par « Je viens pour la première fois », par
+> « Se connecter à mon espace » ou par une visite créée à la main passe
+> automatiquement en cliente : aucune action requise de votre part.
+
+---
+
+## 9. En cas de problème
 
 | Situation | Que faire |
 | --- | --- |
@@ -203,10 +244,12 @@ Printemps** échangeable contre une récompense. Les paliers affichés :
 | **Le montant crédite 0 XP** | Une visite Terminé ne crédite que si un montant est présent. Vérifiez le champ « Montant à facturer » avant de valider. |
 | **La liste reste vide** | La cliente n'a peut-être pas encore déclaré sa visite. Sinon, vérifiez la connexion internet et **Actualiser**. |
 | **La borne n'affiche plus le QR** | Vérifiez le Wi-Fi. |
+| **Un prospect ne peut pas s'inscrire, activez le lien** | Vérifiez que le lien est bien **actif** dans l'onglet Prospects. |
+| **Une personne s'est inscrite avec un mauvais numéro** | Impossible de la retrouver ? Vérifiez l'orthographe et le format dans sa fiche prospect, puis relancez-la. |
 
 ---
 
-## 9. Confidentialité
+## 10. Confidentialité
 
 - Le registre contient des données personnelles : ne laissez pas l'écran de
   l'admin visible depuis la salle d'attente, et n'exportez pas le CSV hors du
@@ -219,7 +262,7 @@ Printemps** échangeable contre une récompense. Les paliers affichés :
 
 ---
 
-## 10. Ce que l'application ne fait pas
+## 11. Ce que l'application ne fait pas
 
 - **Elle ne gère pas les rendez-vous à l'heure exacte.** L'ordre de passage se
   décide entre vous.

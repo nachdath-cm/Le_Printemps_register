@@ -19,6 +19,7 @@ import {
 import { ServicesAdmin } from '../components/admin/ServicesAdmin';
 import { RewardsAdmin } from '../components/admin/RewardsAdmin';
 import { RedemptionsAdmin } from '../components/admin/RedemptionsAdmin';
+import { ProspectsAdmin } from '../components/admin/ProspectsAdmin';
 import { STATUS_LABEL, type Registration, type RegistrationStatus } from '../lib/types';
 import { formatDateTime, formatDayLabel, localDayKey } from '../lib/utils';
 
@@ -40,6 +41,7 @@ const TABS = [
   { id: 'prestations', label: 'Prestations' },
   { id: 'recompenses', label: 'Récompenses' },
   { id: 'echanges', label: 'Échanges' },
+  { id: 'prospects', label: 'Prospects' },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -171,6 +173,7 @@ export function AdminPage() {
         {tab === 'prestations' && <ServicesAdmin />}
         {tab === 'recompenses' && <RewardsAdmin />}
         {tab === 'echanges' && <RedemptionsAdmin />}
+        {tab === 'prospects' && <ProspectsAdmin />}
 
         <ClientRegisterModal
           open={manualOpen}

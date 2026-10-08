@@ -16,6 +16,8 @@ import {
   firstVisitSchema,
   loginSchema,
   phoneOnlySchema,
+  prospectLinkSchema,
+  prospectSubmitSchema,
   redeemSchema,
   verifyCodeSchema,
   redemptionStatusSchema,
@@ -27,24 +29,32 @@ import {
 import { PIN_LENGTH } from '../src/lib/constants.ts';
 import {
   countForDay,
+  convertProspect,
   createOtp,
+  createProspectLink,
   createReward,
   createRegistration,
   createVisitForClient,
+  deleteProspect,
   deleteReward,
   ensureStoreReady,
+  findLinkByToken,
   firstVisit,
   getClientById,
   getMeData,
+  listProspectLinks,
+  listProspects,
   listRedemptions,
   listRegistrations,
   listRewards,
   listServicePrices,
   redeemReward,
   setAmount,
+  setProspectLinkActive,
   setRedemptionStatus,
   setServicePrice,
   setStatus,
+  submitProspect,
   updateReward,
   verifyOtp,
 } from './store.ts';
@@ -274,6 +284,10 @@ async function requireClient(req: Request, res: Response, next: NextFunction): P
     return;
   }
   (req as unknown as { clientId: string }).clientId = cid;
+  if (client.status === 'prospect') {
+    res.status(403).json({ error: 'Votre espace sera activé dès que l’équipe vous aura accueillie.' });
+    return;
+  }
   next();
 }
 
@@ -358,6 +372,10 @@ api.post('/auth/client/verify-code', async (req, res) => {
   }
   recordLoginSuccess(`otp-verify:${digits}`);
   recordLoginSuccess(`otp-verify-ip:${req.ip ?? 'inconnu'}`);
+  if (result.client.status === 'prospect') {
+    // Connexion par code : un prospect devient cliente à ce moment.
+    await convertProspect(result.client.id);
+  }
   setClientCookie(res, issueClientToken(result.client.id));
   res.json({ ok: true });
 });
@@ -421,6 +439,161 @@ api.post('/me/visits', requireClient, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Création impossible.' });
+  }
+});
+
+/* ----------------------------------------------------------------------- */
+/* Prospects : lien public + gestion admin                                 */
+/* ----------------------------------------------------------------------- */
+
+api.get('/public/prospect-link/:token', async (req, res) => {
+  const token = req.params.token;
+  if (typeof token !== 'string') {
+    res.status(404).json({ error: 'Lien inconnu.' });
+    return;
+  }
+  const link = await findLinkByToken(token);
+  if (!link || !link.active) {
+    res.status(404).json({ error: 'Ce lien n’est plus valide.' });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+api.post('/public/prospect-link/:token', async (req, res) => {
+  const scope = `prospect:${req.ip ?? 'inconnu'}`;
+  const verdict = checkLoginRate(scope);
+  if (!verdict.ok) {
+    res.status(429).json({ error: 'Trop de tentatives. Réessayez plus tard.' });
+    return;
+  }
+  const parsed = prospectSubmitSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: firstError(parsed.error) });
+    return;
+  }
+  // Honeypot rempli : bot probable. On fait semblant de réussir.
+  if (parsed.data.website) {
+    res.json({ ok: true });
+    return;
+  }
+  const token = req.params.token;
+  const link = typeof token === 'string' ? await findLinkByToken(token) : null;
+  if (!link || !link.active) {
+    // Même réponse que le succès pour ne rien révéler sur l'existence du lien.
+    res.json({ ok: true });
+    return;
+  }
+  recordLoginFailure(scope);
+  try {
+    await submitProspect({
+      linkLabel: link.label,
+      firstName: parsed.data.firstName,
+      lastName: parsed.data.lastName,
+      phone: parsed.data.phone,
+      interestServiceId:
+        parsed.data.interestServiceId && SERVICE_BY_ID.has(parsed.data.interestServiceId)
+          ? parsed.data.interestServiceId
+          : null,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Envoi impossible. Réessayez plus tard.' });
+  }
+});
+
+api.get('/prospect-links', requireAdmin, async (_req, res) => {
+  try {
+    res.json(await listProspectLinks());
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Impossible de lire les liens.' });
+  }
+});
+
+api.post('/prospect-links', requireAdmin, async (req, res) => {
+  const parsed = prospectLinkSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: firstError(parsed.error) });
+    return;
+  }
+  try {
+    res.status(201).json(await createProspectLink(parsed.data.label));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Création impossible.' });
+  }
+});
+
+api.patch('/prospect-links/:id', requireAdmin, async (req, res) => {
+  const id = req.params.id;
+  if (typeof id !== 'string') {
+    res.status(400).json({ error: 'Identifiant invalide.' });
+    return;
+  }
+  const active = (req.body ?? {}).active;
+  if (typeof active !== 'boolean') {
+    res.status(400).json({ error: 'Demande invalide.' });
+    return;
+  }
+  try {
+    const updated = await setProspectLinkActive(id, active);
+    if (!updated) {
+      res.status(404).json({ error: 'Lien introuvable.' });
+      return;
+    }
+    res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Mise à jour impossible.' });
+  }
+});
+
+api.get('/prospects', requireAdmin, async (_req, res) => {
+  try {
+    res.json(await listProspects());
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Impossible de lire les prospects.' });
+  }
+});
+
+api.post('/prospects/:id/convert', requireAdmin, async (req, res) => {
+  const id = req.params.id;
+  if (typeof id !== 'string') {
+    res.status(400).json({ error: 'Identifiant invalide.' });
+    return;
+  }
+  try {
+    const client = await convertProspect(id);
+    if (!client) {
+      res.status(404).json({ error: 'Prospect introuvable.' });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Conversion impossible.' });
+  }
+});
+
+api.delete('/prospects/:id', requireAdmin, async (req, res) => {
+  const id = req.params.id;
+  if (typeof id !== 'string') {
+    res.status(400).json({ error: 'Identifiant invalide.' });
+    return;
+  }
+  try {
+    const result = await deleteProspect(id);
+    if ('error' in result) {
+      res.status(409).json({ error: result.error });
+      return;
+    }
+    res.status(204).end();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Suppression impossible.' });
   }
 });
 

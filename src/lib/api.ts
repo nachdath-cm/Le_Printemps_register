@@ -284,3 +284,59 @@ export function createMyVisit(services: string[]): Promise<Registration> {
     body: JSON.stringify({ services }),
   });
 }
+
+/* ----------------------------------------------------------------------- */
+/* Prospects                                                               */
+/* ----------------------------------------------------------------------- */
+
+import type { ProspectLinkRow, ProspectRow } from './types';
+export type { ProspectLinkRow, ProspectRow };
+
+export function submitProspectLink(
+  token: string,
+  input: {
+    firstName: string;
+    lastName: string;
+    phone: string;
+    interestServiceId: string | null;
+    consent: true;
+    website?: string;
+  },
+): Promise<{ ok: true }> {
+  return request<{ ok: true }>(`/public/prospect-link/${encodeURIComponent(token)}`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function listProspectLinks(): Promise<ProspectLinkRow[]> {
+  return request<ProspectLinkRow[]>('/prospect-links', {}, true);
+}
+
+export function createProspectLink(label: string): Promise<ProspectLinkRow> {
+  return request<ProspectLinkRow>('/prospect-links', {
+    method: 'POST',
+    body: JSON.stringify({ label }),
+  }, true);
+}
+
+export function setProspectLinkActive(id: string, active: boolean): Promise<ProspectLinkRow> {
+  return request<ProspectLinkRow>(`/prospect-links/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ active }),
+  }, true);
+}
+
+export function listProspects(): Promise<ProspectRow[]> {
+  return request<ProspectRow[]>('/prospects', {}, true);
+}
+
+export function convertProspect(id: string): Promise<{ ok: true }> {
+  return request<{ ok: true }>(`/prospects/${encodeURIComponent(id)}/convert`, {
+    method: 'POST',
+  }, true);
+}
+
+export function deleteProspect(id: string): Promise<void> {
+  return request<void>(`/prospects/${encodeURIComponent(id)}`, { method: 'DELETE' }, true);
+}

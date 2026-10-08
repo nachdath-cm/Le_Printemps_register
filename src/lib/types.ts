@@ -60,6 +60,16 @@ export interface Client {
   /** Chiffres du téléphone saisis historiquement — rapprochement interne. */
   claimedPhone: string;
   totalXp: number;
+  /** 'prospect' (première saisie, pas encore cliente) ou 'client'. */
+  status: ClientStatus;
+  /** Label du lien prospect utilisé, null pour les comptes historiques. */
+  source: string | null;
+  /** Prestation d'intérêt déclarée par le prospect. */
+  interestServiceId: string | null;
+  /** Consentement au contact, horodaté quand il a été coché. */
+  consentContactAt: string | null;
+  /** Conversion prospect -> cliente. */
+  convertedAt: string | null;
 }
 
 export interface Reward {
@@ -133,4 +143,33 @@ export interface SpaceData {
   visits: SpaceVisit[];
   rewards: Reward[];
   redemptions: SpaceRedemption[];
+}
+
+export type ClientStatus = 'prospect' | 'client';
+
+export interface ProspectLink {
+  id: string;
+  token: string;
+  label: string;
+  active: boolean;
+  createdAt: string;
+}
+
+/** Prospect enrichi pour l'onglet admin. */
+export interface ProspectRow {
+  id: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  interestServiceId: string | null;
+  source: string | null;
+  createdAt: string;
+  status: ClientStatus;
+  convertedAt: string | null;
+}
+
+/** Lien avec le nombre de prospects qu'il a apportés. */
+export interface ProspectLinkRow extends ProspectLink {
+  prospectCount: number;
+  convertedCount: number;
 }
