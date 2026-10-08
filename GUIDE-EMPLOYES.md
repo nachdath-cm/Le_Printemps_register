@@ -71,7 +71,7 @@ La session reste ouverte **12 heures**. Pour quitter, bouton **Sortir**.
 
 ## 4. Les onglets du registre
 
-En haut de la page admin, six onglets :
+En haut de la page admin, sept onglets :
 
 | Onglet | Contenu |
 | --- | --- |
@@ -81,6 +81,7 @@ En haut de la page admin, six onglets :
 | **Échanges** | les échanges de Fleurs demandés par les clientes |
 | **Bons** | commandes de bons, confirmation d'encaissement, liste des bons |
 | **Prospects** | les liens à envoyer et les personnes intéressées |
+| **Clients** | la liste complète des comptes (clientes et prospects) |
 
 ### Registre — lire la liste
 
@@ -222,8 +223,10 @@ Chaque ligne indique le nom, le téléphone (cliquable pour appeler), la
 prestation d'intérêt, la source (le lien utilisé) et la date.
 
 - **Relancer sur WhatsApp** : prépare un message poli au nom du salon ;
-- **Passer en cliente** : convertit la personne (utile quand elle arrive
-  sans avoir utilisé son espace) ;
+- **Passer en cliente** : convertit la personne. Au moment de la
+  conversion, vous pouvez aussi **saisir la prestation reçue** : elle
+  apparaît alors dans le Registre en « En attente », prête à être
+  facturée et passée à *Terminé*.
 - **Supprimer** : possible seulement tant qu'elle n'a aucune visite ;
 - filtres : *Prospects / Converties / Tous*, par source, par période, et
   recherche par nom ou téléphone.

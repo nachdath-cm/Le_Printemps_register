@@ -331,10 +331,29 @@ export function listProspects(): Promise<ProspectRow[]> {
   return request<ProspectRow[]>('/prospects', {}, true);
 }
 
-export function convertProspect(id: string): Promise<{ ok: true }> {
-  return request<{ ok: true }>(`/prospects/${encodeURIComponent(id)}/convert`, {
+export function convertProspect(id: string, services: string[] = []): Promise<{ ok: true; visitCreated: boolean }> {
+  return request<{ ok: true; visitCreated: boolean }>(`/prospects/${encodeURIComponent(id)}/convert`, {
     method: 'POST',
+    body: JSON.stringify({ services }),
   }, true);
+}
+
+export interface AdminClient {
+  id: string;
+  createdAt: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  totalXp: number;
+  status: 'prospect' | 'client';
+  source: string | null;
+  interestServiceId: string | null;
+  convertedAt: string | null;
+  flowersTotal: number;
+}
+
+export function listClients(): Promise<AdminClient[]> {
+  return request<AdminClient[]>('/clients', {}, true);
 }
 
 /* ----------------------------------------------------------------------- */

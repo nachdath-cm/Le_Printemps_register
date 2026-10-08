@@ -63,6 +63,7 @@ import {
   listRegistrations,
   listRewards,
   listServicePrices,
+  listClients,
   listVoucherOrders,
   listVouchers,
   quickCreateClient,
@@ -79,7 +80,7 @@ import {
   verifyOtp,
 } from './store.ts';
 import { issueClientToken, readClientToken } from './auth.ts';
-import { SERVICE_BY_ID, SERVICES, serviceLabel } from '../src/config/services.ts';
+import { SERVICE_BY_ID, SERVICES, VALID_SERVICE_IDS, serviceLabel } from '../src/config/services.ts';
 import { STATUS_LABEL } from '../src/lib/types.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -857,15 +858,28 @@ api.post('/prospects/:id/convert', requireAdmin, async (req, res) => {
     return;
   }
   try {
-    const client = await convertProspect(id);
+    const servicesRaw = (req.body ?? {}).services;
+    const services = Array.isArray(servicesRaw)
+      ? servicesRaw.filter((s): s is string => typeof s === 'string' && VALID_SERVICE_IDS.has(s))
+      : [];
+    const client = await convertProspect(id, services);
     if (!client) {
       res.status(404).json({ error: 'Prospect introuvable.' });
       return;
     }
-    res.json({ ok: true });
+    res.json({ ok: true, visitCreated: services.length > 0 });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Conversion impossible.' });
+  }
+});
+
+api.get('/clients', requireAdmin, async (_req, res) => {
+  try {
+    res.json(await listClients());
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Impossible de lire les clients.' });
   }
 });
 

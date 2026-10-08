@@ -14,7 +14,7 @@ import {
   type ProspectRow,
 } from '../../lib/api';
 import { CLIENT_STATUS_LABELS } from '../../config/client-status';
-import { serviceLabel } from '../../config/services';
+import { SERVICE_CATEGORIES, serviceLabel, servicesByCategory } from '../../config/services';
 import { Button } from '../ui/Button';
 import { FilterPill } from '../ui/Card';
 import { TextInput } from '../ui/Field';
@@ -319,11 +319,14 @@ function ProspectLine({
   setError: (message: string | null) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [converting, setConverting] = useState(false);
+  const [selectedServices, setSelectedServices] = useState<string[]>([]);
 
   const convert = async () => {
     setBusy(true);
     try {
-      await convertProspect(prospect.id);
+      await convertProspect(prospect.id, selectedServices);
+      setConverting(false);
       await onChanged();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Conversion impossible.');
@@ -331,6 +334,9 @@ function ProspectLine({
       setBusy(false);
     }
   };
+
+  const toggleService = (id: string) =>
+    setSelectedServices((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const remove = async () => {
     if (!window.confirm(`Supprimer ${prospect.firstName} ${prospect.lastName} ?`)) return;
@@ -381,8 +387,8 @@ function ProspectLine({
           <MessageCircle className="size-4" aria-hidden="true" />
           Relancer sur WhatsApp
         </a>
-        {prospect.status === 'prospect' && (
-          <Button size="sm" variant="secondary" disabled={busy} onClick={() => void convert()}>
+        {prospect.status === 'prospect' && !converting && (
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => setConverting(true)}>
             Passer en cliente
           </Button>
         )}
@@ -399,6 +405,48 @@ function ProspectLine({
           </Button>
         )}
       </div>
+
+      {converting && (
+        <div className="border-primary-light bg-surface flex flex-col gap-3 rounded-tile border p-4">
+          <p className="text-ink font-serif text-base font-semibold">
+            Quelle prestation lui avez-vous faite ?
+          </p>
+          {SERVICE_CATEGORIES.map((category) => (
+            <div key={category.id} className="flex flex-wrap gap-1.5">
+              {servicesByCategory(category.id).map((s) => {
+                const active = selectedServices.includes(s.id);
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    role="checkbox"
+                    aria-checked={active}
+                    onClick={() => toggleService(s.id)}
+                    className={`rounded-pill border px-3 py-1 font-sans text-xs font-medium ${
+                      active
+                        ? 'border-primary-strong bg-primary-strong text-white'
+                        : 'border-card-border text-muted'
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+          <div className="flex gap-2">
+            <Button size="sm" disabled={busy} onClick={() => void convert()}>
+              Confirmer la conversion
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConverting(false)}>
+              Annuler
+            </Button>
+          </div>
+          <p className="text-muted text-xs">
+            La prestation est ajoutée au registre en « En attente » pour pouvoir être facturée.
+          </p>
+        </div>
+      )}
     </li>
   );
 }

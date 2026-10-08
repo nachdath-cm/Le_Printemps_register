@@ -1428,7 +1428,10 @@ export async function listProspects(): Promise<import('../src/lib/types.ts').Pro
     }));
 }
 
-export async function convertProspect(id: string): Promise<Client | null> {
+export async function convertProspect(
+  id: string,
+  services: string[] = [],
+): Promise<Client | null> {
   return enqueue(async () => {
     const clients = await readClients();
     const found = clients.find((c) => c.id === id);
@@ -1437,9 +1440,41 @@ export async function convertProspect(id: string): Promise<Client | null> {
       found.status = 'client';
       found.convertedAt = new Date().toISOString();
       await writeJson(CLIENTS_FILE, clients);
+      // Conversion = prestation reçue : on l'enregistre dans le registre,
+      // en attente, pour que l'employée puisse la facturer/passer Terminé.
+      if (services.length > 0) {
+        const all = await readRegistrations();
+        const now = new Date();
+        all.push({
+          v: REGISTRATION_VERSION,
+          id: randomUUID(),
+          createdAt: now.toISOString(),
+          day: dayKeyOf(now),
+          firstName: found.firstName,
+          lastName: found.lastName,
+          phone: found.phone,
+          services,
+          other: '',
+          note: '',
+          status: 'en_attente',
+          clientId: found.id,
+          amountFcfa: await catalogAmount(services),
+          xpEarned: null,
+          voucherIds: [],
+        });
+        await writeJson(DATA_FILE, all);
+      }
     }
     return found;
   });
+}
+
+/** Liste de tous les clients (prospects inclus) pour l'onglet admin. */
+export async function listClients(): Promise<Array<Client & { flowersTotal: number }>> {
+  const clients = await readClients();
+  return clients
+    .map((c) => ({ ...c, flowersTotal: Math.max(0, Math.floor(c.totalXp / 10_000)) }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 /** Suppression réservée aux prospects sans la moindre visite. */
