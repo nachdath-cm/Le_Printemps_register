@@ -59,8 +59,18 @@ remplit un mini-formulaire, et elle arrive dans la base comme **Prospect**.
 ### À quoi ça sert ?
 
 Une cliente peut **prépayer une prestation précise** et l'offrir ou
-l'utiliser plus tard. Chaque bon = **une prestation** du catalogue
-(ex. « Coiffure Homme » donne droit à une Coiffure Homme).
+l'utiliser plus tard. Chaque bon est un **carnet de tickets** pour une
+prestation : à l'achat on obtient autant de codes que de pièces.
+
+| Prestation | Carnet | Prix |
+| --- | --- | --- |
+| Coiffure Femme / Homme / adultes | 6 pièces | 10 000 F |
+| Coiffure Enfant (jeunes et enfants) | 6 pièces | 5 000 F |
+| Soins pieds et mains (manucure prestige) | 3 pièces | 15 000 F |
+| Soins du visage | 2 pièces | 20 000 F |
+| Soins du visage éclat | 3 pièces | 12 000 F |
+| Massages relaxants | 2 pièces | 20 000 F |
+| Gommages du corps | 2 pièces | 20 000 F |
 
 **Aucun paiement en ligne** : la cliente commande depuis son espace, paye
 en **espèces au comptoir**, et l'employée confirme. Les points de fidélité

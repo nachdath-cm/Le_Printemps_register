@@ -102,6 +102,7 @@ export interface PublicService {
   label: string;
   categoryId: string;
   priceFcfa: number;
+  pieces?: number;
 }
 
 export function listPublicServices(): Promise<PublicService[]> {

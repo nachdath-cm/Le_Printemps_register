@@ -242,8 +242,9 @@ le nombre de converties et le taux de conversion.
 
 ## 9. Les bons (prestations prépayées)
 
-Un **bon**, c'est une prestation achetée à l'avance, en espèces au comptoir.
-Chaque bon correspond à **une prestation précise** du catalogue.
+Un **bon**, c'est un carnet de tickets pour une prestation (ex. 6 coiffures
+Homme dans un même carnet), acheté en espèces au comptoir. À l'achat, le
+salon remet autant de codes que de pièces.
 
 ### Comment une cliente achète
 

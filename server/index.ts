@@ -1013,6 +1013,7 @@ api.get('/services', async (_req, res) => {
         label: s.label,
         categoryId: s.categoryId,
         priceFcfa: prices[s.id] ?? 0,
+        pieces: s.pieces ?? 1,
       })),
     );
   } catch (err) {

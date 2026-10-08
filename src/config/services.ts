@@ -20,6 +20,14 @@ export interface Service {
   id: string;
   label: string;
   categoryId: ServiceCategoryId;
+  /** Nombre de pièces dans un bon (carnet) pour cette prestation. Défaut 1. */
+  pieces?: number;
+}
+
+/** Pièces dans un bon pour cette prestation (1 = bon unitaire). */
+export function piecesForService(serviceId: string): number {
+  const p = SERVICES.find((s) => s.id === serviceId)?.pieces;
+  return typeof p === 'number' && p > 0 ? p : 1;
 }
 
 export const SERVICE_CATEGORIES: readonly ServiceCategory[] = [
@@ -42,21 +50,22 @@ export const SERVICE_CATEGORIES: readonly ServiceCategory[] = [
 
 export const SERVICES: readonly Service[] = [
   // Soins du Spa
-  { id: 'soins-du-visage', label: 'Soins du visage', categoryId: 'spa' },
+  { id: 'soins-du-visage', label: 'Soins du visage', categoryId: 'spa', pieces: 2 },
+  { id: 'soins-du-visage-eclat', label: 'Soins du visage éclat', categoryId: 'spa', pieces: 3 },
   { id: 'soins-du-corps', label: 'Soins du corps', categoryId: 'spa' },
-  { id: 'massages-relaxants', label: 'Massages relaxants', categoryId: 'spa' },
-  { id: 'gommages-du-corps', label: 'Gommages du corps', categoryId: 'spa' },
+  { id: 'massages-relaxants', label: 'Massages relaxants', categoryId: 'spa', pieces: 2 },
+  { id: 'gommages-du-corps', label: 'Gommages du corps', categoryId: 'spa', pieces: 2 },
   { id: 'gommages-du-visage', label: 'Gommages du visage', categoryId: 'spa' },
 
   // Soins de Beauté
-  { id: 'manucure-prestige', label: 'Manucure prestige', categoryId: 'beaute' },
+  { id: 'manucure-prestige', label: 'Manucure prestige', categoryId: 'beaute', pieces: 3 },
   { id: 'pedicure-spa', label: 'Pédicure spa', categoryId: 'beaute' },
   { id: 'vernis-semi-permanent', label: 'Pose vernis semi-permanent', categoryId: 'beaute' },
 
   // Salon de Coiffure
-  { id: 'coiffure-femme', label: 'Coiffure Femme', categoryId: 'coiffure' },
-  { id: 'coiffure-homme', label: 'Coiffure Homme', categoryId: 'coiffure' },
-  { id: 'coiffure-enfant', label: 'Coiffure Enfant', categoryId: 'coiffure' },
+  { id: 'coiffure-femme', label: 'Coiffure Femme', categoryId: 'coiffure', pieces: 6 },
+  { id: 'coiffure-homme', label: 'Coiffure Homme', categoryId: 'coiffure', pieces: 6 },
+  { id: 'coiffure-enfant', label: 'Coiffure Enfant', categoryId: 'coiffure', pieces: 6 },
 ] as const;
 
 /** Identifiant réservé à la pastille « Autre ». */

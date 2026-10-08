@@ -21,7 +21,7 @@ import {
   REGISTRATION_STATUSES,
   REGISTRATION_VERSION,
 } from '../src/lib/types.ts';
-import { SERVICES, serviceLabel } from '../src/config/services.ts';
+import { SERVICES, piecesForService, serviceLabel } from '../src/config/services.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.DATA_DIR ?? join(here, 'data');
@@ -72,40 +72,31 @@ async function readJson<T>(file: string, fallback: T): Promise<T> {
 
 /** Prix catalogue attendus (table de la mission), par libelle de service. */
 const SEED_PRICES: Record<string, number> = {
-  'Coiffure Homme': 2000,
-  'Coiffure Homme avec teinte': 3000,
-  'Coiffure Enfant': 1000,
-  'Coiffure Enfant avec teinte': 2000,
-  'Beauté des mains et pieds': 6500,
-  'Soin paraffine': 2000,
-  'Massage corporel': 15000,
-  'Soin du visage': 15000,
-  'Soin éclat': 5000,
-  'Gommage corporel': 15000,
-  'Arrangement ongle simple': 1000,
-  'Arrangement ongle avec massage': 3000,
-  'Pose vernis mains et pieds': 1000,
-  'Pose capsule + vernis simple': 2000,
-  'Pose capsule + semi-permanent': 5000,
+  // C'est le prix du carnet (pack de pièces), par prestation.
+  'Coiffure Femme': 10000,
+  'Coiffure Homme': 10000,
+  'Coiffure Enfant': 5000,
+  'Manucure prestige': 15000,
+  'Soins du visage': 20000,
+  'Soins du visage éclat': 12000,
+  'Massages relaxants': 20000,
+  'Gommages du corps': 20000,
+  'Pédicure spa': 15000,
+  'Pose vernis semi-permanent': 2000,
 };
 
 /** Correspondances libelle(catalogue existant) -> prix. */
 const LABEL_ALIASES: Record<string, string[]> = {
+  'Coiffure Femme': ['Coiffure Femme'],
   'Coiffure Homme': ['Coiffure Homme'],
-  'Coiffure Homme avec teinte': ['Coiffure Homme avec teinte'],
   'Coiffure Enfant': ['Coiffure Enfant'],
-  'Coiffure Enfant avec teinte': ['Coiffure Enfant avec teinte'],
-  'Beauté des mains et pieds': ['Beauté des mains et pieds', 'Manucure prestige'],
-  'Soin paraffine': ['Soin paraffine'],
-  'Massage corporel': ['Massage corporel', 'Massages relaxants'],
-  'Soin du visage': ['Soin du visage', 'Soins du visage'],
-  'Soin éclat': ['Soin éclat'],
-  'Gommage corporel': ['Gommage corporel', 'Gommages du corps'],
-  'Arrangement ongle simple': ['Arrangement ongle simple'],
-  'Arrangement ongle avec massage': ['Arrangement ongle avec massage'],
-  'Pose vernis mains et pieds': ['Pose vernis mains et pieds'],
-  'Pose capsule + vernis simple': ['Pose capsule + vernis simple'],
-  'Pose capsule + semi-permanent': ['Pose capsule + semi-permanent', 'Pose vernis semi-permanent'],
+  'Manucure prestige': ['Manucure prestige', 'Beauté des mains et pieds'],
+  'Soins du visage': ['Soins du visage', 'Soin du visage'],
+  'Soins du visage éclat': ['Soins du visage éclat', 'Soin éclat'],
+  'Massages relaxants': ['Massages relaxants', 'Massage corporel'],
+  'Gommages du corps': ['Gommages du corps', 'Gommage corporel'],
+  'Pédicure spa': ['Pédicure spa'],
+  'Pose vernis semi-permanent': ['Pose vernis semi-permanent', 'Pose capsule + semi-permanent'],
 };
 
 /** Prix seed par identifiant de service (0 pour « autre » / inconnu). */
@@ -892,26 +883,31 @@ export async function confirmVoucherOrder(
         exp.setMonth(exp.getMonth() + settings.voucherValidityMonths);
         expiresAt = exp.toISOString();
       }
-      for (let n = 0; n < line.quantity; n += 1) {
-        let code = randomVoucherCode();
-        for (let attempt = 0; attempt < 5 && vouchers.some((v) => v.code === code); attempt += 1) {
-          code = randomVoucherCode();
-        }
-        if (vouchers.some((v) => v.code === code)) {
-          return { error: 'Génération de code impossible, réessayez.' };
-        }
-        const voucher: Voucher = {
-          id: randomUUID(),
-          code,
-          serviceId: line.serviceId,
-          orderId: order.id,
-          ownerClientId: order.clientId,
-          pricePaidFcfa: final,
-          status: 'active',
-          expiresAt,
-          reservedVisitId: null,
-          usedAt: null,
-          xpCredited: final,
+    const piecesEach = piecesForService(line.serviceId);
+    const totalPieces = line.quantity * piecesEach;
+    const totalPaid = final * line.quantity;
+    for (let n = 0; n < totalPieces; n += 1) {
+      // Répartit le total payé entre les pièces (les restes vont aux premières).
+      const share = Math.floor(totalPaid / totalPieces) + (n < totalPaid % totalPieces ? 1 : 0);
+      let code = randomVoucherCode();
+      for (let attempt = 0; attempt < 5 && vouchers.some((v) => v.code === code); attempt += 1) {
+        code = randomVoucherCode();
+      }
+      if (vouchers.some((v) => v.code === code)) {
+        return { error: 'Génération de code impossible, réessayez.' };
+      }
+      const voucher: Voucher = {
+        id: randomUUID(),
+        code,
+        serviceId: line.serviceId,
+        orderId: order.id,
+        ownerClientId: order.clientId,
+        pricePaidFcfa: share,
+        status: 'active',
+        expiresAt,
+        reservedVisitId: null,
+        usedAt: null,
+        xpCredited: share,
           createdAt: now.toISOString(),
         };
         vouchers.push(voucher);
@@ -982,7 +978,7 @@ export async function applyVoucherToRegistration(
     if (voucher.reservedVisitId) {
       return { error: 'Ce bon est déjà réservé pour une autre visite.' };
     }
-    const price = (await listServicePrices())[voucher.serviceId] ?? 0;
+    const price = voucher.pricePaidFcfa;
     voucher.status = 'reserved';
     voucher.reservedVisitId = registration.id;
     registration.voucherIds = [...registration.voucherIds, voucher.id];
@@ -1012,7 +1008,7 @@ export async function detachVoucherFromRegistration(
     if (!voucher || !registration.voucherIds.includes(voucherId)) {
       return { error: 'Bon non appliqué à cette visite.' };
     }
-    const price = (await listServicePrices())[voucher.serviceId] ?? 0;
+    const price = voucher.pricePaidFcfa;
     voucher.status = 'active';
     voucher.reservedVisitId = null;
     registration.voucherIds = registration.voucherIds.filter((id) => id !== voucherId);
@@ -1182,14 +1178,13 @@ export async function createVisitForClient(
 
     // Valide les bons avant de créer la visite.
     const vouchers = await readVouchers();
-    const prices = await listServicePrices();
     let discount = 0;
     for (const vid of voucherIds) {
       const v = vouchers.find((x) => x.id === vid);
       if (!v || v.ownerClientId !== client.id || !voucherUsable(v) || !services.includes(v.serviceId)) {
         return { error: 'Un des bons sélectionnés n’est plus utilisable.' };
       }
-      discount += prices[v.serviceId] ?? 0;
+      discount += v.pricePaidFcfa;
     }
 
     const now = new Date();

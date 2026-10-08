@@ -517,7 +517,10 @@ function BuyVoucherSection({ data, onChanged }: { data: SpaceData; onChanged: ()
                       >
                         <div>
                           <p className="text-ink text-sm font-medium">{s.label}</p>
-                          <p className="text-muted text-xs">{formatFcfa(s.priceFcfa)}</p>
+                          <p className="text-muted text-xs">
+                            {formatFcfa(s.priceFcfa)}
+                            {s.pieces && s.pieces > 1 ? ` · pack de ${s.pieces} pièces` : ''}
+                          </p>
                         </div>
                         <span className="flex items-center gap-2">
                           <button

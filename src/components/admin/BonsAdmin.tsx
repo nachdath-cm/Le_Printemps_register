@@ -527,7 +527,7 @@ function DirectSaleSection({
               .map((s) => (
                 <div key={s.id} className="flex items-center gap-2 text-sm">
                   <span className="text-ink flex-1">
-                    {s.label} <span className="text-muted">({formatFcfa(s.priceFcfa)})</span>
+                    {s.label} <span className="text-muted">({formatFcfa(s.priceFcfa)}{s.pieces && s.pieces > 1 ? ` / pack de ${s.pieces}` : ''})</span>
                   </span>
                   <input
                     inputMode="numeric"
