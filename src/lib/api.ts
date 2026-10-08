@@ -337,6 +337,149 @@ export function convertProspect(id: string): Promise<{ ok: true }> {
   }, true);
 }
 
+/* ----------------------------------------------------------------------- */
+/* Bons : espace cliente + admin                                           */
+/* ----------------------------------------------------------------------- */
+
+export interface AdminVoucherOrder {
+  id: string;
+  clientId: string;
+  clientName: string;
+  clientPhone: string;
+  status: 'pending' | 'confirmed' | 'cancelled' | 'expired';
+  createdBy: 'client' | 'admin';
+  createdAt: string;
+  confirmedAt: string | null;
+  cancelledAt: string | null;
+  totalFcfa: number;
+  items: Array<{
+    id: string;
+    serviceId: string;
+    serviceLabel: string;
+    quantity: number;
+    unitPriceFcfa: number;
+    finalUnitPriceFcfa: number | null;
+  }>;
+}
+
+export interface AdminVoucher {
+  id: string;
+  code: string;
+  serviceId: string;
+  serviceLabel: string;
+  ownerClientId: string;
+  ownerName: string;
+  ownerPhone: string;
+  pricePaidFcfa: number;
+  status: 'active' | 'reserved' | 'used' | 'cancelled';
+  effectiveStatus: 'active' | 'reserved' | 'used' | 'cancelled' | 'expired';
+  expiresAt: string | null;
+  usedAt: string | null;
+  xpCredited: number;
+  createdAt: string;
+}
+
+export function createVoucherOrder(lines: Array<{ serviceId: string; quantity: number }>): Promise<{ id: string }> {
+  return request<{ id: string }>('/me/voucher-orders', {
+    method: 'POST',
+    body: JSON.stringify({ lines }),
+  });
+}
+
+export function cancelMyVoucherOrder(id: string): Promise<{ ok: true }> {
+  return request<{ ok: true }>(`/me/voucher-orders/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST',
+  });
+}
+
+export function listVoucherOrdersAdmin(): Promise<AdminVoucherOrder[]> {
+  return request<AdminVoucherOrder[]>('/voucher-orders', {}, true);
+}
+
+export function confirmVoucherOrder(
+  id: string,
+  prices: Array<{ serviceId: string; unitPriceFcfa: number }>,
+): Promise<{ vouchers: Array<{ code: string }>; xpCredited: number }> {
+  return request(`/voucher-orders/${encodeURIComponent(id)}/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({ prices }),
+  }, true);
+}
+
+export function cancelVoucherOrderAdmin(id: string): Promise<{ ok: true }> {
+  return request<{ ok: true }>(`/voucher-orders/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST',
+  }, true);
+}
+
+export function directSale(input: {
+  clientId: string;
+  lines: Array<{ serviceId: string; quantity: number }>;
+  prices: Array<{ serviceId: string; unitPriceFcfa: number }>;
+}): Promise<{ vouchers: Array<{ code: string }>; xpCredited: number }> {
+  return request('/voucher-orders/direct', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  }, true);
+}
+
+export function listVouchersAdmin(): Promise<AdminVoucher[]> {
+  return request<AdminVoucher[]>('/vouchers', {}, true);
+}
+
+export function cancelVoucherCode(id: string): Promise<{ ok: true }> {
+  return request<{ ok: true }>(`/vouchers/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST',
+  }, true);
+}
+
+export function getVoucherSettings(): Promise<{ voucherValidityMonths: number }> {
+  return request<{ voucherValidityMonths: number }>('/voucher-settings', {}, true);
+}
+
+export function setVoucherValidityMonths(months: number): Promise<{ voucherValidityMonths: number }> {
+  return request<{ voucherValidityMonths: number }>('/voucher-settings', {
+    method: 'PATCH',
+    body: JSON.stringify({ months }),
+  }, true);
+}
+
+export function searchClients(q: string): Promise<Array<{ id: string; name: string; phone: string }>> {
+  return request(`/clients/search?q=${encodeURIComponent(q)}`, {}, true);
+}
+
+export function createClientAccount(input: {
+  firstName: string;
+  lastName: string;
+  phone: string;
+}): Promise<{ id: string }> {
+  return request<{ id: string }>('/clients', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  }, true);
+}
+
+export function applyVoucherToVisitAdmin(registrationId: string, code: string): Promise<unknown> {
+  return request(`/registrations/${encodeURIComponent(registrationId)}/vouchers`, {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  }, true);
+}
+
+export function detachVoucherFromVisitAdmin(registrationId: string, voucherId: string): Promise<unknown> {
+  return request(`/registrations/${encodeURIComponent(registrationId)}/vouchers/detach`, {
+    method: 'POST',
+    body: JSON.stringify({ voucherId }),
+  }, true);
+}
+
+export function createMyVisitWithVouchers(services: string[], voucherIds: string[]): Promise<Registration> {
+  return request<Registration>('/me/visits', {
+    method: 'POST',
+    body: JSON.stringify({ services, voucherIds }),
+  });
+}
+
 export function deleteProspect(id: string): Promise<void> {
   return request<void>(`/prospects/${encodeURIComponent(id)}`, { method: 'DELETE' }, true);
 }

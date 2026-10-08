@@ -11,12 +11,17 @@ import type {
   RedemptionStatus,
   Reward,
   SpaceData,
+  SpaceVoucher,
+  SpaceVoucherOrder,
+  Voucher,
+  VoucherOrder,
+  VoucherOrderItem,
 } from '../src/lib/types.ts';
 import {
   REGISTRATION_STATUSES,
   REGISTRATION_VERSION,
 } from '../src/lib/types.ts';
-import { SERVICES } from '../src/config/services.ts';
+import { SERVICES, serviceLabel } from '../src/config/services.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.DATA_DIR ?? join(here, 'data');
@@ -160,6 +165,7 @@ async function readRegistrations(): Promise<Registration[]> {
     clientId: r.clientId ?? null,
     amountFcfa: r.amountFcfa ?? null,
     xpEarned: r.xpEarned ?? null,
+    voucherIds: Array.isArray(r.voucherIds) ? r.voucherIds : [],
   }));
   return registrationsCache;
 }
@@ -286,6 +292,7 @@ export async function createRegistration(
       clientId: client.id,
       amountFcfa: await catalogAmount(input.services),
       xpEarned: null,
+      voucherIds: [],
     };
     all.push(record);
     await writeJson(DATA_FILE, all);
@@ -304,45 +311,6 @@ export interface StatusChange {
   registration: Registration;
   /** Gouttes de Rosée créditees au passage a Terminé, 0 sinon. */
   xpCredited: number;
-}
-
-export async function setStatus(id: string, status: RegistrationStatus): Promise<StatusChange | null> {
-  return enqueue(async () => {
-    const all = await readRegistrations();
-    const clients = await readClients();
-    const found = all.find((r) => r.id === id);
-    if (!found) return null;
-
-    // Sortie de « termine » : on retire les XP créditées pour éviter un
-    // double crédit si la carte repasse ensuite à Terminé.
-    if (found.status === 'termine' && status !== 'termine' && found.xpEarned) {
-      const client = clients.find((c) => c.id === found.clientId);
-      if (client) {
-        client.totalXp = Math.max(0, client.totalXp - found.xpEarned);
-        await writeJson(CLIENTS_FILE, clients);
-      }
-      found.xpEarned = null;
-    }
-
-    let xpCredited = 0;
-    if (status === 'termine' && found.status !== 'termine') {
-      const amount = found.amountFcfa ?? (await catalogAmount(found.services));
-      found.amountFcfa = amount;
-      const client = clients.find((c) => c.id === found.clientId);
-      if (client) {
-        client.totalXp += amount;
-        found.xpEarned = amount;
-        xpCredited = amount;
-        await writeJson(CLIENTS_FILE, clients);
-      } else {
-        found.xpEarned = 0;
-      }
-    }
-
-    found.status = status;
-    await writeJson(DATA_FILE, all);
-    return { registration: found, xpCredited };
-  });
 }
 
 export async function setAmount(id: string, amountFcfa: number): Promise<Registration | null> {
@@ -398,6 +366,9 @@ export async function getMeData(clientId: string): Promise<SpaceData | null> {
         createdAt: pending.createdAt,
         services: pending.services,
         amountFcfa: pending.amountFcfa ?? 0,
+        voucherCodes: (pending.voucherIds ?? [])
+          .map((vid) => vouchersCache?.find((v) => v.id === vid)?.code)
+          .filter((c): c is string => Boolean(c)),
       }
     : null;
   const visits = all
@@ -440,7 +411,71 @@ export async function getMeData(clientId: string): Promise<SpaceData | null> {
         createdAt: r.createdAt,
         usedAt: r.usedAt,
       })),
+    vouchers: await listOwnerVouchers(client.id),
+    voucherOrders: await listOwnerOrders(client.id),
   };
+}
+
+/** Libellé français du statut d'un bon, avec « Expiré » calculé. */
+function spaceVoucherStatus(v: Voucher): SpaceVoucher['status'] {
+  if (v.status === 'reserved') return 'Réservé';
+  if (v.status === 'used') return 'Utilisé';
+  if (v.status === 'cancelled') return 'Annulé';
+  if (v.expiresAt && Date.parse(v.expiresAt) <= Date.now()) return 'Expiré';
+  return 'Valide';
+}
+
+async function listOwnerVouchers(clientId: string): Promise<SpaceVoucher[]> {
+  const vouchers = await readVouchers();
+  return vouchers
+    .filter((v) => v.ownerClientId === clientId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .map((v) => ({
+      id: v.id,
+      code: v.code,
+      serviceId: v.serviceId,
+      pricePaidFcfa: v.pricePaidFcfa,
+      status: spaceVoucherStatus(v),
+      expiresAt: v.expiresAt,
+      createdAt: v.createdAt,
+    }));
+}
+
+async function listOwnerOrders(clientId: string): Promise<SpaceVoucherOrder[]> {
+  const orders = await readOrders();
+  const items = await readOrderItems();
+  return orders
+    .filter((o) => o.clientId === clientId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .map((o) => {
+      const lines = items.filter((i) => i.orderId === o.id);
+      const total = lines.reduce(
+        (sum, i) => sum + (i.finalUnitPriceFcfa ?? i.unitPriceFcfa) * i.quantity,
+        0,
+      );
+      return {
+        id: o.id,
+        status: effectiveOrderStatus(o),
+        createdAt: o.createdAt,
+        totalFcfa: total,
+        lines: lines
+          .map((i) => `${serviceLabel(i.serviceId)} × ${i.quantity}`)
+          .join(' · '),
+      };
+    });
+}
+
+/** Statut de commande exposé : « expired » calculé après 72 h. */
+function effectiveOrderStatus(o: VoucherOrder): VoucherOrder['status'] {
+  if (o.status === 'pending' && Date.now() - Date.parse(o.createdAt) > 72 * 3600 * 1000) {
+    return 'expired';
+  }
+  return o.status;
+}
+
+/** Le statut effectif, avec persistance paresseuse de l'expiration. */
+export function orderEffectiveStatus(o: VoucherOrder): VoucherOrder['status'] {
+  return effectiveOrderStatus(o);
 }
 
 export async function redeemReward(clientId: string, rewardId: string): Promise<SpaceData | { error: string }> {
@@ -642,12 +677,492 @@ const otpTimer = setInterval(() => {
 otpTimer.unref?.();
 
 /* ----------------------------------------------------------------------- */
+/* Bons par prestation                                                     */
+/* ----------------------------------------------------------------------- */
+
+const ORDERS_FILE = join(DATA_DIR, 'voucher-orders.json');
+const ORDER_ITEMS_FILE = join(DATA_DIR, 'voucher-order-items.json');
+const VOUCHERS_FILE = join(DATA_DIR, 'vouchers.json');
+const SETTINGS_FILE = join(DATA_DIR, 'settings.json');
+
+let ordersCache: VoucherOrder[] | null = null;
+let orderItemsCache: VoucherOrderItem[] | null = null;
+let vouchersCache: Voucher[] | null = null;
+let settingsCache: { voucherValidityMonths: number } | null = null;
+
+async function readOrders(): Promise<VoucherOrder[]> {
+  if (ordersCache) return ordersCache;
+  const parsed = await readJson<unknown>(ORDERS_FILE, []);
+  ordersCache = Array.isArray(parsed) ? (parsed as VoucherOrder[]) : [];
+  return ordersCache;
+}
+
+async function readOrderItems(): Promise<VoucherOrderItem[]> {
+  if (orderItemsCache) return orderItemsCache;
+  const parsed = await readJson<unknown>(ORDER_ITEMS_FILE, []);
+  orderItemsCache = Array.isArray(parsed) ? (parsed as VoucherOrderItem[]) : [];
+  return orderItemsCache;
+}
+
+async function readVouchers(): Promise<Voucher[]> {
+  if (vouchersCache) return vouchersCache;
+  const parsed = await readJson<unknown>(VOUCHERS_FILE, []);
+  vouchersCache = Array.isArray(parsed) ? (parsed as Voucher[]) : [];
+  return vouchersCache;
+}
+
+export async function getVoucherSettings(): Promise<{ voucherValidityMonths: number }> {
+  if (settingsCache) return settingsCache;
+  const parsed = await readJson<unknown>(SETTINGS_FILE, null);
+  const months =
+    parsed && typeof parsed === 'object' && typeof (parsed as { voucherValidityMonths?: unknown }).voucherValidityMonths === 'number'
+      ? (parsed as { voucherValidityMonths: number }).voucherValidityMonths
+      : 6;
+  settingsCache = { voucherValidityMonths: months };
+  return settingsCache;
+}
+
+export async function setVoucherValidityMonths(months: number): Promise<{ voucherValidityMonths: number }> {
+  return enqueue(async () => {
+    settingsCache = { voucherValidityMonths: Math.max(0, Math.floor(months)) };
+    await writeJson(SETTINGS_FILE, settingsCache);
+    return settingsCache;
+  });
+}
+
+const VOUCHER_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+function randomVoucherCode(): string {
+  const bytes = randomBytes(10);
+  let raw = '';
+  for (let i = 0; i < 10; i += 1) {
+    raw += VOUCHER_CODE_ALPHABET[bytes[i]! % VOUCHER_CODE_ALPHABET.length];
+  }
+  return `PRT-${raw.slice(0, 5)}-${raw.slice(5)}`;
+}
+
+export interface OrderLineInput {
+  serviceId: string;
+  quantity: number;
+}
+
+export interface OrderView extends VoucherOrder {
+  clientName: string;
+  clientPhone: string;
+  items: Array<VoucherOrderItem & { serviceLabel: string }>;
+  status: VoucherOrder['status'];
+  totalFcfa: number;
+}
+
+function toOrderView(o: VoucherOrder, clients: Client[], items: VoucherOrderItem[]): OrderView {
+  const client = clients.find((c) => c.id === o.clientId);
+  const lines = items.filter((i) => i.orderId === o.id);
+  return {
+    ...o,
+    status: effectiveOrderStatus(o),
+    clientName: client ? `${client.firstName} ${client.lastName}` : 'Cliente',
+    clientPhone: client?.phone ?? '',
+    items: lines.map((i) => ({ ...i, serviceLabel: serviceLabel(i.serviceId) })),
+    totalFcfa: lines.reduce((sum, i) => sum + (i.finalUnitPriceFcfa ?? i.unitPriceFcfa) * i.quantity, 0),
+  };
+}
+
+export async function listVoucherOrders(): Promise<OrderView[]> {
+  const [orders, items, clients] = await Promise.all([readOrders(), readOrderItems(), readClients()]);
+  return orders
+    .map((o) => toOrderView(o, clients, items))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/** Crée une commande 'pending' (prix catalogue figés, calculés côté serveur). */
+export async function createVoucherOrder(
+  clientId: string,
+  lines: OrderLineInput[],
+  createdBy: 'client' | 'admin',
+): Promise<VoucherOrder | { error: string } | null> {
+  return enqueue(async () => {
+    const clients = await readClients();
+    const client = clients.find((c) => c.id === clientId);
+    if (!client) return null;
+    const orders = await readOrders();
+    if (
+      createdBy === 'client' &&
+      orders.some((o) => o.clientId === clientId && effectiveOrderStatus(o) === 'pending')
+    ) {
+      return { error: 'Vous avez déjà une commande en attente de paiement.' };
+    }
+    const prices = await listServicePrices();
+    const valid: OrderLineInput[] = [];
+    for (const line of lines) {
+      const price = prices[line.serviceId] ?? 0;
+      if (!SERVICES.some((s) => s.id === line.serviceId) || price <= 0) {
+        return { error: 'Prestation non vendable en bon.' };
+      }
+      if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > 10) {
+        return { error: 'Quantité invalide (1 à 10).' };
+      }
+      valid.push(line);
+    }
+    const order: VoucherOrder = {
+      id: randomUUID(),
+      clientId,
+      status: 'pending',
+      createdBy,
+      createdAt: new Date().toISOString(),
+      confirmedAt: null,
+      cancelledAt: null,
+    };
+    const items = await readOrderItems();
+    orders.push(order);
+    for (const line of valid) {
+      items.push({
+        id: randomUUID(),
+        orderId: order.id,
+        serviceId: line.serviceId,
+        quantity: line.quantity,
+        unitPriceFcfa: prices[line.serviceId]!,
+        finalUnitPriceFcfa: null,
+      });
+    }
+    await writeJson(ORDERS_FILE, orders);
+    await writeJson(ORDER_ITEMS_FILE, items);
+    return order;
+  });
+}
+
+/** Annulation par la cliente ou l'employée : aucun effet sur les points. */
+export async function cancelVoucherOrder(
+  orderId: string,
+  clientId?: string,
+): Promise<{ ok: true } | { error: string }> {
+  return enqueue(async () => {
+    const orders = await readOrders();
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return { error: 'Commande introuvable.' };
+    if (clientId && order.clientId !== clientId) return { error: 'Commande introuvable.' };
+    if (effectiveOrderStatus(order) !== 'pending') {
+      return { error: 'Cette commande ne peut plus être annulée.' };
+    }
+    order.status = 'cancelled';
+    order.cancelledAt = new Date().toISOString();
+    await writeJson(ORDERS_FILE, orders);
+    return { ok: true };
+  });
+}
+
+/** Une même transaction : commande confirmée + bons créés + XP crédités. */
+export async function confirmVoucherOrder(
+  orderId: string,
+  finalPrices: Array<{ serviceId: string; unitPriceFcfa: number }>,
+  byClientId?: string,
+): Promise<{ vouchers: Voucher[]; xpCredited: number } | { error: string }> {
+  return enqueue(async () => {
+    const orders = await readOrders();
+    const items = await readOrderItems();
+    const vouchers = await readVouchers();
+    const clients = await readClients();
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return { error: 'Commande introuvable.' };
+    if (byClientId && order.clientId !== byClientId) return { error: 'Commande introuvable.' };
+    // Protection double clic : seul 'pending' effectif peut être confirmé.
+    if (effectiveOrderStatus(order) !== 'pending') {
+      return { error: 'Cette commande a déjà été traitée.' };
+    }
+    const orderLines = items.filter((i) => i.orderId === orderId);
+    const finalByService = new Map(finalPrices.map((f) => [f.serviceId, f.unitPriceFcfa]));
+    for (const [serviceId, price] of finalByService) {
+      if (!orderLines.some((i) => i.serviceId === serviceId)) {
+        return { error: 'Prestation inconnue dans cette commande.' };
+      }
+      if (!Number.isInteger(price) || price < 0 || price > 100_000_000) {
+        return { error: 'Prix payé invalide.' };
+      }
+    }
+    const settings = await getVoucherSettings();
+    const createdVouchers: Voucher[] = [];
+    let xpTotal = 0;
+    const now = new Date();
+    for (const line of orderLines) {
+      const final = finalByService.get(line.serviceId) ?? line.unitPriceFcfa;
+      line.finalUnitPriceFcfa = final;
+      xpTotal += final * line.quantity;
+      let expiresAt: string | null = null;
+      if (settings.voucherValidityMonths > 0) {
+        const exp = new Date(now);
+        exp.setMonth(exp.getMonth() + settings.voucherValidityMonths);
+        expiresAt = exp.toISOString();
+      }
+      for (let n = 0; n < line.quantity; n += 1) {
+        let code = randomVoucherCode();
+        for (let attempt = 0; attempt < 5 && vouchers.some((v) => v.code === code); attempt += 1) {
+          code = randomVoucherCode();
+        }
+        if (vouchers.some((v) => v.code === code)) {
+          return { error: 'Génération de code impossible, réessayez.' };
+        }
+        const voucher: Voucher = {
+          id: randomUUID(),
+          code,
+          serviceId: line.serviceId,
+          orderId: order.id,
+          ownerClientId: order.clientId,
+          pricePaidFcfa: final,
+          status: 'active',
+          expiresAt,
+          reservedVisitId: null,
+          usedAt: null,
+          xpCredited: final,
+          createdAt: now.toISOString(),
+        };
+        vouchers.push(voucher);
+        createdVouchers.push(voucher);
+      }
+    }
+    order.status = 'confirmed';
+    order.confirmedAt = now.toISOString();
+    const owner = clients.find((c) => c.id === order.clientId);
+    if (owner) {
+      owner.totalXp += xpTotal;
+      await writeJson(CLIENTS_FILE, clients);
+    }
+    await writeJson(ORDERS_FILE, orders);
+    await writeJson(ORDER_ITEMS_FILE, items);
+    await writeJson(VOUCHERS_FILE, vouchers);
+    return { vouchers: createdVouchers, xpCredited: xpTotal };
+  });
+}
+
+/** Vente directe par l'employée : commande 'confirmed' immédiatement. */
+export async function createDirectVoucherOrder(
+  clientId: string,
+  lines: OrderLineInput[],
+  finalPrices: Array<{ serviceId: string; unitPriceFcfa: number }>,
+): Promise<{ vouchers: Voucher[]; xpCredited: number; orderId: string } | { error: string }> {
+  const created = await createVoucherOrder(clientId, lines, 'admin');
+  if (!created || 'error' in created) {
+    return created && 'error' in created ? { error: created.error } : { error: 'Création impossible.' };
+  }
+  // L'XP n'est créditée qu'à la "confirmation" : même chemin que la commande cliente.
+  const result = await confirmVoucherOrder(created.id, finalPrices);
+  if ('error' in result) return result;
+  return { ...result, orderId: created.id };
+}
+
+/** Un bon utilisable : actif, non expiré. */
+export function voucherUsable(v: Voucher): boolean {
+  if (v.status !== 'active') return false;
+  if (v.expiresAt && Date.parse(v.expiresAt) <= Date.now()) return false;
+  return true;
+}
+
+/** Rattache un bon à une visite en attente et ajuste le montant. */
+export async function applyVoucherToRegistration(
+  registrationId: string,
+  code: string,
+  byClientId?: string,
+): Promise<{ registration: Registration; voucher: Voucher } | { error: string }> {
+  return enqueue(async () => {
+    const all = await readRegistrations();
+    const vouchers = await readVouchers();
+    const registration = all.find((r) => r.id === registrationId);
+    if (!registration || registration.status !== 'en_attente') {
+      return { error: 'Visite introuvable ou déjà traitée.' };
+    }
+    if (byClientId && registration.clientId !== byClientId) {
+      return { error: 'Visite introuvable.' };
+    }
+    const voucher = vouchers.find((v) => v.code === code.trim().toUpperCase());
+    if (!voucher) return { error: 'Code de bon introuvable.' };
+    if (!voucherUsable(voucher)) {
+      return { error: voucher.status === 'cancelled' ? 'Ce bon a été annulé.' : 'Ce bon n’est plus utilisable.' };
+    }
+    if (!registration.services.includes(voucher.serviceId)) {
+      return { error: `Ce bon ne couvre pas une prestation de cette visite (${serviceLabel(voucher.serviceId)}).` };
+    }
+    if (voucher.reservedVisitId) {
+      return { error: 'Ce bon est déjà réservé pour une autre visite.' };
+    }
+    const price = (await listServicePrices())[voucher.serviceId] ?? 0;
+    voucher.status = 'reserved';
+    voucher.reservedVisitId = registration.id;
+    registration.voucherIds = [...registration.voucherIds, voucher.id];
+    registration.amountFcfa = Math.max(0, (registration.amountFcfa ?? 0) - price);
+    await writeJson(VOUCHERS_FILE, vouchers);
+    await writeJson(DATA_FILE, all);
+    return { registration, voucher };
+  });
+}
+
+/** Détache un bon d'une visite en attente : retour à 'active' et montant restauré. */
+export async function detachVoucherFromRegistration(
+  registrationId: string,
+  voucherId: string,
+  byClientId?: string,
+): Promise<Registration | { error: string } | null> {
+  return enqueue(async () => {
+    const all = await readRegistrations();
+    const vouchers = await readVouchers();
+    const registration = all.find((r) => r.id === registrationId);
+    if (!registration) return null;
+    if (byClientId && registration.clientId !== byClientId) return { error: 'Visite introuvable.' };
+    if (registration.status !== 'en_attente') {
+      return { error: 'Le bon ne peut être détaché que tant que la visite est en attente.' };
+    }
+    const voucher = vouchers.find((v) => v.id === voucherId);
+    if (!voucher || !registration.voucherIds.includes(voucherId)) {
+      return { error: 'Bon non appliqué à cette visite.' };
+    }
+    const price = (await listServicePrices())[voucher.serviceId] ?? 0;
+    voucher.status = 'active';
+    voucher.reservedVisitId = null;
+    registration.voucherIds = registration.voucherIds.filter((id) => id !== voucherId);
+    registration.amountFcfa = (registration.amountFcfa ?? 0) + price;
+    await writeJson(VOUCHERS_FILE, vouchers);
+    await writeJson(DATA_FILE, all);
+    return registration;
+  });
+}
+
+/** Fait suivre aux bons le statut d'une visite. */
+async function syncVouchersWithStatus(registration: Registration, newStatus: RegistrationStatus): Promise<void> {
+  if (!registration.voucherIds.length) return;
+  const vouchers = await readVouchers();
+  let changed = false;
+  for (const vid of registration.voucherIds) {
+    const v = vouchers.find((x) => x.id === vid);
+    if (!v || v.status === 'cancelled') continue;
+    if (newStatus === 'termine') {
+      v.status = 'used';
+      v.usedAt = new Date().toISOString();
+      changed = true;
+    } else if (newStatus === 'annule') {
+      v.status = 'active';
+      v.reservedVisitId = null;
+      v.usedAt = null;
+      changed = true;
+    } else if (newStatus === 'en_attente') {
+      v.status = 'reserved';
+      v.reservedVisitId = registration.id;
+      v.usedAt = null;
+      changed = true;
+    }
+  }
+  if (changed) await writeJson(VOUCHERS_FILE, vouchers);
+}
+
+/** Annulation d'un bon par l'admin : 'active' seulement, XP retirés si possible. */
+export async function cancelVoucher(
+  voucherId: string,
+): Promise<{ ok: true } | { error: string }> {
+  return enqueue(async () => {
+    const vouchers = await readVouchers();
+    const clients = await readClients();
+    const voucher = vouchers.find((v) => v.id === voucherId);
+    if (!voucher) return { error: 'Bon introuvable.' };
+    if (voucher.status !== 'active') {
+      return { error: 'Seul un bon actif peut être annulé.' };
+    }
+    const owner = clients.find((c) => c.id === voucher.ownerClientId);
+    if (owner) {
+      const { rewards, redemptions } = await readLoyalty();
+      const reservedCost = redemptions
+        .filter((r) => r.clientId === owner.id && (r.status === 'pending' || r.status === 'used'))
+        .reduce((sum, r) => sum + (rewards.find((w) => w.id === r.rewardId)?.costFlowers ?? 0), 0);
+      const availableAfter = Math.floor((owner.totalXp - voucher.xpCredited) / 10_000) - reservedCost;
+      if (availableAfter < 0) {
+        return {
+          error: 'Annulation impossible : ce retrait rendrait les Fleurs réservées de cette cliente négatives (échange en cours ou récompense déjà utilisée).',
+        };
+      }
+      owner.totalXp = Math.max(0, owner.totalXp - voucher.xpCredited);
+      await writeJson(CLIENTS_FILE, clients);
+    }
+    voucher.status = 'cancelled';
+    await writeJson(VOUCHERS_FILE, vouchers);
+    return { ok: true };
+  });
+}
+
+export interface VoucherRow extends Voucher {
+  ownerName: string;
+  ownerPhone: string;
+  serviceLabel: string;
+  effectiveStatus: 'active' | 'reserved' | 'used' | 'cancelled' | 'expired';
+}
+
+export async function listVouchers(): Promise<VoucherRow[]> {
+  const [vouchers, clients] = await Promise.all([readVouchers(), readClients()]);
+  return vouchers
+    .map((v) => {
+      const owner = clients.find((c) => c.id === v.ownerClientId);
+      const expired = v.status === 'active' && v.expiresAt !== null && Date.parse(v.expiresAt) <= Date.now();
+      return {
+        ...v,
+        ownerName: owner ? `${owner.firstName} ${owner.lastName}` : 'Cliente',
+        ownerPhone: owner?.phone ?? '',
+        serviceLabel: serviceLabel(v.serviceId),
+        effectiveStatus: expired ? ('expired' as const) : v.status,
+      };
+    })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/** Recherche de clientes pour la vente directe. */
+export async function searchClients(query: string): Promise<Array<{ id: string; name: string; phone: string }>> {
+  const clients = await readClients();
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [];
+  return clients
+    .filter(
+      (c) =>
+        c.firstName.toLowerCase().includes(needle) ||
+        c.lastName.toLowerCase().includes(needle) ||
+        c.phone.includes(query.replace(/\D/g, '')),
+    )
+    .slice(0, 20)
+    .map((c) => ({ id: c.id, name: `${c.firstName} ${c.lastName}`, phone: c.phone }));
+}
+
+/** Création rapide d'une cliente (vente directe), ou rapprochement par téléphone. */
+export async function quickCreateClient(input: {
+  firstName: string;
+  lastName: string;
+  phone: string;
+}): Promise<Client> {
+  return enqueue(async () => {
+    const clients = await readClients();
+    const digits = normalizePhone(input.phone);
+    const existing = findClientByPhone(clients, digits);
+    if (existing) return existing;
+    const client: Client = {
+      v: 1,
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+      firstName: input.firstName,
+      lastName: input.lastName,
+      phone: digits,
+      claimedPhone: digits,
+      totalXp: 0,
+      status: 'client',
+      source: null,
+      interestServiceId: null,
+      consentContactAt: null,
+      convertedAt: null,
+    };
+    clients.push(client);
+    await writeJson(CLIENTS_FILE, clients);
+    return client;
+  });
+}
+
+/* ----------------------------------------------------------------------- */
 /* Visite creee par le client connecte                                     */
 /* ----------------------------------------------------------------------- */
 
 export async function createVisitForClient(
   clientId: string,
   services: string[],
+  voucherIds: string[] = [],
 ): Promise<Registration | { error: string } | null> {
   return enqueue(async () => {
     const clients = await readClients();
@@ -665,6 +1180,18 @@ export async function createVisitForClient(
       return { error: 'Vous avez déjà une visite en attente. Un seul passage à la fois.' };
     }
 
+    // Valide les bons avant de créer la visite.
+    const vouchers = await readVouchers();
+    const prices = await listServicePrices();
+    let discount = 0;
+    for (const vid of voucherIds) {
+      const v = vouchers.find((x) => x.id === vid);
+      if (!v || v.ownerClientId !== client.id || !voucherUsable(v) || !services.includes(v.serviceId)) {
+        return { error: 'Un des bons sélectionnés n’est plus utilisable.' };
+      }
+      discount += prices[v.serviceId] ?? 0;
+    }
+
     const now = new Date();
     const record: Registration = {
       v: REGISTRATION_VERSION,
@@ -679,12 +1206,60 @@ export async function createVisitForClient(
       note: '',
       status: 'en_attente',
       clientId: client.id,
-      amountFcfa: await catalogAmount(services),
+      amountFcfa: Math.max(0, (await catalogAmount(services)) - discount),
       xpEarned: null,
+      voucherIds: [],
     };
     all.push(record);
+    for (const vid of voucherIds) {
+      const v = vouchers.find((x) => x.id === vid)!;
+      v.status = 'reserved';
+      v.reservedVisitId = record.id;
+      record.voucherIds.push(v.id);
+    }
     await writeJson(DATA_FILE, all);
+    await writeJson(VOUCHERS_FILE, vouchers);
     return record;
+  });
+}
+
+export async function setStatus(id: string, status: RegistrationStatus): Promise<StatusChange | null> {
+  return enqueue(async () => {
+    const all = await readRegistrations();
+    const clients = await readClients();
+    const found = all.find((r) => r.id === id);
+    if (!found) return null;
+
+    // Sortie de « termine » : on retire les XP créditées pour éviter un
+    // double crédit si la carte repasse ensuite à Terminé.
+    if (found.status === 'termine' && status !== 'termine' && found.xpEarned) {
+      const client = clients.find((c) => c.id === found.clientId);
+      if (client) {
+        client.totalXp = Math.max(0, client.totalXp - found.xpEarned);
+        await writeJson(CLIENTS_FILE, clients);
+      }
+      found.xpEarned = null;
+    }
+
+    let xpCredited = 0;
+    if (status === 'termine' && found.status !== 'termine') {
+      const amount = found.amountFcfa ?? (await catalogAmount(found.services));
+      found.amountFcfa = amount;
+      const client = clients.find((c) => c.id === found.clientId);
+      if (client) {
+        client.totalXp += amount;
+        found.xpEarned = amount;
+        xpCredited = amount;
+        await writeJson(CLIENTS_FILE, clients);
+      } else {
+        found.xpEarned = 0;
+      }
+    }
+
+    found.status = status;
+    await syncVouchersWithStatus(found, status);
+    await writeJson(DATA_FILE, all);
+    return { registration: found, xpCredited };
   });
 }
 

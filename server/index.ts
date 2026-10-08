@@ -10,8 +10,14 @@ import { checkLoginRate, recordLoginFailure, recordLoginSuccess } from './rate-l
 import {
   BODY_LIMIT,
   amountSchema,
+  applyVoucherSchema,
+  clientCreateSchema,
+  confirmOrderSchema,
   createSchema,
   createVisitSchema,
+  createVoucherOrderSchema,
+  detachVoucherSchema,
+  directSaleSchema,
   firstError,
   firstVisitSchema,
   loginSchema,
@@ -25,35 +31,49 @@ import {
   rewardSchema,
   servicePriceSchema,
   statusSchema,
+  voucherValiditySchema,
 } from './schemas.ts';
 import { PIN_LENGTH } from '../src/lib/constants.ts';
 import {
+  applyVoucherToRegistration,
+  cancelVoucher,
+  cancelVoucherOrder,
+  confirmVoucherOrder,
   countForDay,
   convertProspect,
+  createDirectVoucherOrder,
   createOtp,
   createProspectLink,
   createReward,
   createRegistration,
   createVisitForClient,
+  createVoucherOrder,
   deleteProspect,
   deleteReward,
+  detachVoucherFromRegistration,
   ensureStoreReady,
   findLinkByToken,
   firstVisit,
   getClientById,
   getMeData,
+  getVoucherSettings,
   listProspectLinks,
   listProspects,
   listRedemptions,
   listRegistrations,
   listRewards,
   listServicePrices,
+  listVoucherOrders,
+  listVouchers,
+  quickCreateClient,
   redeemReward,
+  searchClients,
   setAmount,
   setProspectLinkActive,
   setRedemptionStatus,
   setServicePrice,
   setStatus,
+  setVoucherValidityMonths,
   submitProspect,
   updateReward,
   verifyOtp,
@@ -131,7 +151,17 @@ api.post('/registrations', async (req, res) => {
 api.get('/registrations', requireAdmin, async (req, res) => {
   const day = typeof req.query.day === 'string' && req.query.day ? req.query.day : undefined;
   try {
-    res.json(await listRegistrations(day));
+    const rows = await listRegistrations(day);
+    const vouchers = await listVouchers();
+    const byId = new Map(vouchers.map((v) => [v.id, v.code]));
+    res.json(
+      rows.map((r) => ({
+        ...r,
+        voucherCodes: (r.voucherIds ?? [])
+          .map((id) => byId.get(id))
+          .filter((c): c is string => Boolean(c)),
+      })),
+    );
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Impossible de lire le registre.' });
@@ -426,7 +456,11 @@ api.post('/me/visits', requireClient, async (req, res) => {
     return;
   }
   try {
-    const result = await createVisitForClient(clientIdOf(req), parsed.data.services);
+    const result = await createVisitForClient(
+      clientIdOf(req),
+      parsed.data.services,
+      parsed.data.voucherIds ?? [],
+    );
     if (!result) {
       res.status(404).json({ error: 'Client introuvable.' });
       return;
@@ -439,6 +473,263 @@ api.post('/me/visits', requireClient, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Création impossible.' });
+  }
+});
+
+api.post('/me/voucher-orders', requireClient, async (req, res) => {
+  const scope = `voucherorder:${clientIdOf(req)}`;
+  const scopeIp = `voucherorder:${req.ip ?? 'inconnu'}`;
+  const verdict = checkLoginRate(scope);
+  const verdictIp = checkLoginRate(scopeIp);
+  if (!verdict.ok || !verdictIp.ok) {
+    res.status(429).json({ error: 'Trop de demandes. Réessayez plus tard.' });
+    return;
+  }
+  const parsed = createVoucherOrderSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: firstError(parsed.error) });
+    return;
+  }
+  recordLoginFailure(scope);
+  recordLoginFailure(scopeIp);
+  try {
+    const result = await createVoucherOrder(clientIdOf(req), parsed.data.lines, 'client');
+    if (!result) {
+      res.status(404).json({ error: 'Client introuvable.' });
+      return;
+    }
+    if ('error' in result) {
+      res.status(409).json({ error: result.error });
+      return;
+    }
+    res.status(201).json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Commande impossible.' });
+  }
+});
+
+api.post('/me/voucher-orders/:id/cancel', requireClient, async (req, res) => {
+  const id = req.params.id;
+  if (typeof id !== 'string') {
+    res.status(400).json({ error: 'Identifiant invalide.' });
+    return;
+  }
+  try {
+    const result = await cancelVoucherOrder(id, clientIdOf(req));
+    if ('error' in result) {
+      res.status(409).json({ error: result.error });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Annulation impossible.' });
+  }
+});
+
+/* ----------------------------------------------------------------------- */
+/* Bons : ventes, confirmation, liste (admin)                              */
+/* ----------------------------------------------------------------------- */
+
+api.get('/voucher-orders', requireAdmin, async (_req, res) => {
+  try {
+    res.json(await listVoucherOrders());
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Impossible de lire les commandes.' });
+  }
+});
+
+api.post('/voucher-orders/:id/confirm', requireAdmin, async (req, res) => {
+  const parsed = confirmOrderSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: firstError(parsed.error) });
+    return;
+  }
+  const id = req.params.id;
+  if (typeof id !== 'string') {
+    res.status(400).json({ error: 'Identifiant invalide.' });
+    return;
+  }
+  try {
+    const result = await confirmVoucherOrder(id, parsed.data.prices);
+    if ('error' in result) {
+      res.status(409).json({ error: result.error });
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Confirmation impossible.' });
+  }
+});
+
+api.post('/voucher-orders/:id/cancel', requireAdmin, async (req, res) => {
+  const id = req.params.id;
+  if (typeof id !== 'string') {
+    res.status(400).json({ error: 'Identifiant invalide.' });
+    return;
+  }
+  try {
+    const result = await cancelVoucherOrder(id);
+    if ('error' in result) {
+      res.status(409).json({ error: result.error });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Annulation impossible.' });
+  }
+});
+
+api.post('/voucher-orders/direct', requireAdmin, async (req, res) => {
+  const parsed = directSaleSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: firstError(parsed.error) });
+    return;
+  }
+  try {
+    const result = await createDirectVoucherOrder(
+      parsed.data.clientId,
+      parsed.data.lines,
+      parsed.data.prices,
+    );
+    if ('error' in result) {
+      res.status(409).json({ error: result.error });
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Vente impossible.' });
+  }
+});
+
+api.get('/vouchers', requireAdmin, async (_req, res) => {
+  try {
+    res.json(await listVouchers());
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Impossible de lire les bons.' });
+  }
+});
+
+api.post('/vouchers/:id/cancel', requireAdmin, async (req, res) => {
+  const id = req.params.id;
+  if (typeof id !== 'string') {
+    res.status(400).json({ error: 'Identifiant invalide.' });
+    return;
+  }
+  try {
+    const result = await cancelVoucher(id);
+    if ('error' in result) {
+      res.status(409).json({ error: result.error });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Annulation impossible.' });
+  }
+});
+
+api.get('/voucher-settings', requireAdmin, async (_req, res) => {
+  try {
+    res.json(await getVoucherSettings());
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Impossible de lire les réglages.' });
+  }
+});
+
+api.patch('/voucher-settings', requireAdmin, async (req, res) => {
+  const parsed = voucherValiditySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: firstError(parsed.error) });
+    return;
+  }
+  try {
+    res.json(await setVoucherValidityMonths(parsed.data.months));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Enregistrement impossible.' });
+  }
+});
+
+api.get('/clients/search', requireAdmin, async (req, res) => {
+  try {
+    res.json(await searchClients(typeof req.query.q === 'string' ? req.query.q : ''));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Recherche impossible.' });
+  }
+});
+
+api.post('/clients', requireAdmin, async (req, res) => {
+  const parsed = clientCreateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: firstError(parsed.error) });
+    return;
+  }
+  try {
+    res.status(201).json(await quickCreateClient(parsed.data));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Création impossible.' });
+  }
+});
+
+api.post('/registrations/:id/vouchers', requireAdmin, async (req, res) => {
+  const parsed = applyVoucherSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: firstError(parsed.error) });
+    return;
+  }
+  const id = req.params.id;
+  if (typeof id !== 'string') {
+    res.status(400).json({ error: 'Identifiant invalide.' });
+    return;
+  }
+  try {
+    const result = await applyVoucherToRegistration(id, parsed.data.code);
+    if ('error' in result) {
+      res.status(409).json({ error: result.error });
+      return;
+    }
+    res.json(result.registration);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Application impossible.' });
+  }
+});
+
+api.post('/registrations/:id/vouchers/detach', requireAdmin, async (req, res) => {
+  const parsed = detachVoucherSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: firstError(parsed.error) });
+    return;
+  }
+  const id = req.params.id;
+  if (typeof id !== 'string') {
+    res.status(400).json({ error: 'Identifiant invalide.' });
+    return;
+  }
+  try {
+    const result = await detachVoucherFromRegistration(id, parsed.data.voucherId);
+    if (!result) {
+      res.status(404).json({ error: 'Visite introuvable.' });
+      return;
+    }
+    if ('error' in result) {
+      res.status(409).json({ error: result.error });
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Détache impossible.' });
   }
 });
 

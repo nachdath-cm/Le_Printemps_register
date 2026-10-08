@@ -130,6 +130,7 @@ export const createVisitSchema = z.object({
       (list) => list.every((id) => VALID_SERVICE_IDS.has(id) && id !== 'autre'),
       'Prestation inconnue.',
     ),
+  voucherIds: z.array(z.string().min(1).max(64)).max(20).optional(),
 });
 
 export const servicePriceSchema = z.object({
@@ -157,6 +158,70 @@ export const prospectSubmitSchema = z.object({
   consent: z.literal(true, { error: 'Le consentement est obligatoire.' }),
   /** Honeypot : doit rester vide. */
   website: z.string().max(0).optional(),
+});
+
+export const voucherOrderLineSchema = z.object({
+  serviceId: z.string().min(1).max(64),
+  quantity: z.number().int().min(1, 'Quantité minimale : 1.').max(10, 'Quantité maximale : 10.'),
+});
+
+export const createVoucherOrderSchema = z.object({
+  lines: z.array(voucherOrderLineSchema).min(1, 'Le panier est vide.').max(50),
+});
+
+export const confirmOrderSchema = z.object({
+  prices: z
+    .array(
+      z.object({
+        serviceId: z.string().min(1).max(64),
+        unitPriceFcfa: z
+          .number()
+          .int('Le prix doit être un nombre entier.')
+          .min(0, 'Le prix ne peut pas être négatif.')
+          .max(100_000_000),
+      }),
+    )
+    .max(50),
+});
+
+export const applyVoucherSchema = z.object({
+  code: z.string().min(3).max(24).transform(clean),
+});
+
+export const detachVoucherSchema = z.object({
+  voucherId: z.string().min(1).max(64),
+});
+
+export const voucherValiditySchema = z.object({
+  months: z
+    .number()
+    .int('La validité doit être un nombre entier de mois.')
+    .min(0, 'Utilisez 0 pour une validité sans expiration.')
+    .max(120),
+});
+
+export const directSaleSchema = z.object({
+  clientId: z.string().min(1).max(64),
+  lines: z.array(voucherOrderLineSchema).min(1).max(50),
+  prices: z
+    .array(
+      z.object({
+        serviceId: z.string().min(1).max(64),
+        unitPriceFcfa: z.number().int().min(0).max(100_000_000),
+      }),
+    )
+    .max(50),
+});
+
+export const clientCreateSchema = z.object({
+  firstName: z.string().min(1, 'Le prénom est requis.').max(60).transform(clean),
+  lastName: z.string().min(1, 'Le nom est requis.').max(60).transform(clean),
+  phone: z
+    .string()
+    .min(6)
+    .max(25)
+    .transform(clean)
+    .refine((v) => PHONE_PATTERN.test(v), 'Numéro de téléphone invalide.'),
 });
 
 export function firstError(error: z.ZodError): string {

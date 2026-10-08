@@ -71,7 +71,7 @@ La session reste ouverte **12 heures**. Pour quitter, bouton **Sortir**.
 
 ## 4. Les onglets du registre
 
-En haut de la page admin, cinq onglets :
+En haut de la page admin, six onglets :
 
 | Onglet | Contenu |
 | --- | --- |
@@ -79,6 +79,7 @@ En haut de la page admin, cinq onglets :
 | **Prestations** | le catalogue et les **prix** de chaque prestation |
 | **Récompenses** | créer / modifier / activer / supprimer les récompenses |
 | **Échanges** | les échanges de Fleurs demandés par les clientes |
+| **Bons** | commandes de bons, confirmation d'encaissement, liste des bons |
 | **Prospects** | les liens à envoyer et les personnes intéressées |
 
 ### Registre — lire la liste
@@ -232,7 +233,87 @@ le nombre de converties et le taux de conversion.
 
 ---
 
-## 9. En cas de problème
+## 9. Les bons (prestations prépayées)
+
+Un **bon**, c'est une prestation achetée à l'avance, en espèces au comptoir.
+Chaque bon correspond à **une prestation précise** du catalogue.
+
+### Comment une cliente achète
+
+Dans **son espace**, section *Acheter un bon* : elle choisit les prestations
+(à forte demande), valide sa commande, puis présente-vous **En attente de
+paiement**.
+
+- Une seule commande en attente à la fois ;
+- Elle peut l'**annuler** tant que vous n'avez pas confirmé ;
+- Les points (Gouttes de Rosée) ne sont crédités **qu'à votre confirmation**.
+
+### Confirmer une commande (onglet Bons)
+
+1. L'onglet **Bons** affiche les *Commandes en attente de paiement*,
+   avec un compteur rouge sur l'onglet.
+2. Pour chaque ligne, le prix catalogue est pré-rempli : ajustez si
+   tarif préférentiel — une pastille **Prix modifié** apparaît.
+3. **Espèces reçues** valide : la commande passe *Payée*, les bons sont
+   créés et les Gouttes de Rosée crédités à l'acheteuse.
+   Un deuxième clic « Espèces reçues » ne crédite rien une seconde fois.
+4. **Annuler** laisse la cliente repartir sans bon ni points.
+5. Une commande sans paiement pendant **72 heures** est considérée comme
+   expirée automatiquement : retirez-la simplement de votre suivi.
+
+Après confirmation, les **codes des bons** (format `PRT-XXXXX-XXXXX`)
+s'affichent : copiez-les et donnez-les à la cliente.
+
+### Vente directe (« Vendre un bon »)
+
+Si la cliente paye sans passer par son espace :
+
+1. **Vendre un bon** ;
+2. Recherchez la cliente par nom/téléphone, ou créez-la en deux lignes ;
+3. Choisissez les prestations et les prix (tarif normal ou préférentiel) ;
+4. Validez : les bons sont créés immédiatement et crédités.
+
+### Utiliser un bon
+
+**Côté cliente**, dans *Nouvelle visite* : si elle a un bon valide pour une
+prestation choisie, un bouton « Utiliser mon bon » apparaît.
+
+**Côté employée**, dans le **Registre**, sur une visite *En attente* :
+bouton **Utiliser un bon** → saisissez le code (même si la cliente n'est
+pas l'acheteuse du bon, par ex. un cadeau).
+
+Dans les deux cas :
+
+- le **Montant à facturer** diminue du prix catalogue de la prestation
+  couverte (jamais en dessous de zéro) — modifiable à la main ensuite ;
+- une pastille **Bon PRT-… appliqué** s'affiche ;
+- **détacher** est possible tant que la visite reste *En attente* : le bon
+  redevient actif et le montant est restauré.
+
+Au passage à **Terminé**, le bon passe *Utilisé* et les Gouttes de Rosée
+ne sont calculées que sur le montant final : une visite à 0 FCFA grâce à
+un bon crédite 0 Goutte (les points ont déjà été donnés à l'achat).
+
+### Annuler un bon
+
+Dans la liste des bons, **Annuler le bon** est possible tant qu'il est
+actif. Ses Gouttes de Rosée sont alors retirées à l'acheteuse. Si ce
+retrait rendrait ses Fleurs disponibles négatives (échange en cours), le
+système refuse et explique pourquoi.
+
+### Suivi
+
+- **Bons vendus** : nombre et montant total ;
+- **Bons en circulation** : bons valides non utilisés et leur valeur —
+  c'est le nombre de prestations que vous devez encore honorer ;
+- filtres *Actifs / Réservés / Utilisés / Expirés / Annulés*, recherche par
+  code, nom ou téléphone, export **CSV**.
+- Le **réglage de validité** (en mois ; 0 = sans expiration) est en bas de
+  la page. Par défaut : 6 mois.
+
+---
+
+## 10. En cas de problème
 
 | Situation | Que faire |
 | --- | --- |
@@ -246,10 +327,15 @@ le nombre de converties et le taux de conversion.
 | **La borne n'affiche plus le QR** | Vérifiez le Wi-Fi. |
 | **Un prospect ne peut pas s'inscrire, activez le lien** | Vérifiez que le lien est bien **actif** dans l'onglet Prospects. |
 | **Une personne s'est inscrite avec un mauvais numéro** | Impossible de la retrouver ? Vérifiez l'orthographe et le format dans sa fiche prospect, puis relancez-la. |
+| **Une commande ne disparaît pas après 72 h** | Elle est marquée *Expirée* automatiquement : vous pouvez l'annuler ou demander à la cliente de refaire sa commande. |
+| **« Espèces reçues » ne crée pas les bons** | La commande a déjà été traitée (double clic, ou entre-temps). Vérifiez dans la liste des bons : ils y sont peut-être déjà. |
+| **« Annulation impossible : Fleurs négatives »** | La cliente a déjà échangé ou utilisé ses Fleurs. Réglez avec elle à main levée avant d'annuler le bon. |
+| **Le bon d'une cliente ne s'applique pas** | Vérifiez que la prestation du bon figure bien dans la visite, que le bon est actif (non expiré, non utilisé), et qu'il n'est pas déjà rattaché à une autre visite. |
+| **Une cliente a payé mais n'a pas ses bons** | La commande est peut-être encore « En attente de paiement » : confirmez-la après avoir vérifié le paiement. |
 
 ---
 
-## 10. Confidentialité
+## 11. Confidentialité
 
 - Le registre contient des données personnelles : ne laissez pas l'écran de
   l'admin visible depuis la salle d'attente, et n'exportez pas le CSV hors du
@@ -262,7 +348,7 @@ le nombre de converties et le taux de conversion.
 
 ---
 
-## 11. Ce que l'application ne fait pas
+## 12. Ce que l'application ne fait pas
 
 - **Elle ne gère pas les rendez-vous à l'heure exacte.** L'ordre de passage se
   décide entre vous.

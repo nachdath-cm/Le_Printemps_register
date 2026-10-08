@@ -10,8 +10,11 @@ import { FilterPill } from '../components/ui/Card';
 import { OTHER_SERVICE_ID, serviceLabel } from '../config/services';
 import {
   ApiError,
+  applyVoucherToVisitAdmin,
+  detachVoucherFromVisitAdmin,
   exportUrl,
   listRegistrations,
+  listVoucherOrdersAdmin,
   setRegistrationAmount,
   setRegistrationStatus,
   tokenStorage,
@@ -20,6 +23,7 @@ import { ServicesAdmin } from '../components/admin/ServicesAdmin';
 import { RewardsAdmin } from '../components/admin/RewardsAdmin';
 import { RedemptionsAdmin } from '../components/admin/RedemptionsAdmin';
 import { ProspectsAdmin } from '../components/admin/ProspectsAdmin';
+import { BonsAdmin } from '../components/admin/BonsAdmin';
 import { STATUS_LABEL, type Registration, type RegistrationStatus } from '../lib/types';
 import { formatDateTime, formatDayLabel, localDayKey } from '../lib/utils';
 
@@ -41,6 +45,7 @@ const TABS = [
   { id: 'prestations', label: 'Prestations' },
   { id: 'recompenses', label: 'Récompenses' },
   { id: 'echanges', label: 'Échanges' },
+  { id: 'bons', label: 'Bons' },
   { id: 'prospects', label: 'Prospects' },
 ] as const;
 
@@ -57,6 +62,7 @@ export function AdminPage() {
   const [query, setQuery] = useState('');
   const [day, setDay] = useState(localDayKey());
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [pendingOrders, setPendingOrders] = useState(0);
 
   const load = useCallback(async (targetDay: string) => {
     try {
@@ -77,6 +83,14 @@ export function AdminPage() {
   useEffect(() => {
     if (authed) void load(day);
   }, [authed, day, load]);
+
+  // Badge de l'onglet Bons : nombre de commandes en attente.
+  useEffect(() => {
+    if (!authed) return;
+    listVoucherOrdersAdmin()
+      .then((orders) => setPendingOrders(orders.filter((o) => o.status === 'pending').length))
+      .catch(() => setPendingOrders(0));
+  }, [authed, tab]);
 
   const visible = useMemo(() => {
     if (!rows) return [];
@@ -160,6 +174,11 @@ export function AdminPage() {
           {TABS.map((t) => (
             <FilterPill key={t.id} active={tab === t.id} onClick={() => setTab(t.id)}>
               {t.label}
+              {t.id === 'bons' && pendingOrders > 0 && (
+                <span className="bg-danger text-white rounded-full px-1.5 text-[0.65rem] font-bold">
+                  {pendingOrders}
+                </span>
+              )}
             </FilterPill>
           ))}
         </nav>
@@ -173,6 +192,7 @@ export function AdminPage() {
         {tab === 'prestations' && <ServicesAdmin />}
         {tab === 'recompenses' && <RewardsAdmin />}
         {tab === 'echanges' && <RedemptionsAdmin />}
+        {tab === 'bons' && <BonsAdmin />}
         {tab === 'prospects' && <ProspectsAdmin />}
 
         <ClientRegisterModal
@@ -275,6 +295,24 @@ export function AdminPage() {
                 busy={busyId === row.id}
                 onChange={(status) => void changeStatus(row.id, status)}
                 onAmount={(amount) => void changeAmount(row.id, amount)}
+                onApplyVoucher={async (r) => {
+                  const code = window.prompt('Code du bon (ex. PRT-XXXXX-XXXXX) :');
+                  if (!code) return;
+                  try {
+                    await applyVoucherToVisitAdmin(r.id, code);
+                    await load(day);
+                  } catch (err) {
+                    setError(err instanceof ApiError ? err.message : 'Application impossible.');
+                  }
+                }}
+                onDetachVoucher={async (r, voucherId) => {
+                  try {
+                    await detachVoucherFromVisitAdmin(r.id, voucherId);
+                    await load(day);
+                  } catch (err) {
+                    setError(err instanceof ApiError ? err.message : 'Détache impossible.');
+                  }
+                }}
               />
             ))}
           </ul>
@@ -292,11 +330,15 @@ function RegistrationRow({
   busy,
   onChange,
   onAmount,
+  onApplyVoucher,
+  onDetachVoucher,
 }: {
   row: Registration;
   busy: boolean;
   onChange: (status: RegistrationStatus) => void;
   onAmount: (amountFcfa: number) => void;
+  onApplyVoucher?: (row: Registration) => void;
+  onDetachVoucher?: (row: Registration, voucherId: string) => void;
 }) {
   const [amount, setAmount] = useState(row.amountFcfa != null ? String(row.amountFcfa) : '');
   useEffect(() => {
@@ -388,6 +430,33 @@ function RegistrationRow({
               </span>
             )}
           </label>
+        )}
+
+        {row.voucherCodes && row.voucherCodes.length > 0 && (
+          <ul className="flex flex-wrap gap-2">
+            {row.voucherCodes.map((code, index) => (
+              <li
+                key={code}
+                className="bg-success-soft text-success inline-flex items-center gap-2 rounded-pill px-3 py-1 text-[0.7rem] font-semibold"
+              >
+                Bon {code} appliqué
+                {row.status === 'en_attente' && onDetachVoucher && (
+                  <button
+                    type="button"
+                    onClick={() => onDetachVoucher(row, row.voucherIds[index] ?? '')}
+                    className="underline underline-offset-2"
+                  >
+                    détacher
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {row.status === 'en_attente' && onApplyVoucher && (
+          <Button size="sm" variant="ghost" onClick={() => onApplyVoucher(row)}>
+            Utiliser un bon
+          </Button>
         )}
         {row.status === 'termine' && row.amountFcfa != null && (
           <p className="text-muted text-xs">

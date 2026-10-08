@@ -32,6 +32,10 @@ export interface Registration {
   amountFcfa: number | null;
   /** Gouttes de Rosée créditees — rempli uniquement au passage a Terminé. */
   xpEarned: number | null;
+  /** Bons appliqués à cette visite (ids dans `vouchers`). */
+  voucherIds: string[];
+  /** Codes des bons, joints côté API (affichage admin). */
+  voucherCodes?: string[];
 }
 
 export interface CreateRegistrationInput {
@@ -41,6 +45,73 @@ export interface CreateRegistrationInput {
   services: string[];
   other?: string;
   note?: string;
+}
+
+export const VOUCHER_ORDER_STATUSES = ['pending', 'confirmed', 'cancelled', 'expired'] as const;
+export type VoucherOrderStatus = (typeof VOUCHER_ORDER_STATUSES)[number];
+
+export const VOUCHER_ORDER_LABEL: Record<VoucherOrderStatus, string> = {
+  pending: 'En attente de paiement',
+  confirmed: 'Payée',
+  cancelled: 'Annulée',
+  expired: 'Expirée',
+};
+
+export interface VoucherOrderItem {
+  id: string;
+  orderId: string;
+  serviceId: string;
+  quantity: number;
+  unitPriceFcfa: number;
+  finalUnitPriceFcfa: number | null;
+}
+
+export interface VoucherOrder {
+  id: string;
+  clientId: string;
+  status: VoucherOrderStatus;
+  createdBy: 'client' | 'admin';
+  createdAt: string;
+  confirmedAt: string | null;
+  cancelledAt: string | null;
+}
+
+export const VOUCHER_STATUSES = ['active', 'reserved', 'used', 'cancelled'] as const;
+export type VoucherStatus = (typeof VOUCHER_STATUSES)[number];
+
+export interface Voucher {
+  id: string;
+  code: string;
+  serviceId: string;
+  orderId: string;
+  ownerClientId: string;
+  pricePaidFcfa: number;
+  status: VoucherStatus;
+  expiresAt: string | null;
+  reservedVisitId: string | null;
+  usedAt: string | null;
+  xpCredited: number;
+  createdAt: string;
+}
+
+/** Bon tel qu'affiché dans l'espace client (avec statut « Expiré » calculé). */
+export interface SpaceVoucher {
+  id: string;
+  code: string;
+  serviceId: string;
+  pricePaidFcfa: number;
+  status: 'Valide' | 'Réservé' | 'Utilisé' | 'Expiré' | 'Annulé';
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+/** Commande telle qu'affichée dans l'espace client. */
+export interface SpaceVoucherOrder {
+  id: string;
+  status: VoucherOrderStatus;
+  createdAt: string;
+  totalFcfa: number;
+  lines: string;
 }
 
 export interface DayCount {
@@ -111,6 +182,7 @@ export interface PendingVisit {
   createdAt: string;
   services: string[];
   amountFcfa: number;
+  voucherCodes: string[];
 }
 
 /** Visite telle qu'affichée dans l'espace client (Terminé uniquement). */
@@ -143,6 +215,8 @@ export interface SpaceData {
   visits: SpaceVisit[];
   rewards: Reward[];
   redemptions: SpaceRedemption[];
+  vouchers: SpaceVoucher[];
+  voucherOrders: SpaceVoucherOrder[];
 }
 
 export type ClientStatus = 'prospect' | 'client';
